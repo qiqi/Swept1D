@@ -33,9 +33,14 @@ class LocalOperatorBase {
     // LocalInputs1D<numInput> and LocalOutputs1D<numOutput>
     // instances.
     public:
-    virtual void apply(const double* pInputs, const double* pInputsL,
-                       const double* pInputsR, double* pOutputs,
-                       const LocalMesh& mesh) const = 0;
+    // virtual void apply(const double* pInputs, const double* pInputsL,
+    //                    const double* pInputsR, double* pOutputs,
+    //                    const LocalMesh& mesh) const = 0;
+    virtual void applyIterator(const double* pInputsBegin,
+            const double* pInputsLBegin,
+            const double* pInputsRBegin, double* pOutputsBegin,
+            std::vector<LocalMesh>::const_iterator meshBegin,
+            std::vector<LocalMesh>::const_iterator meshEnd) const = 0;
     virtual size_t numInputs() const = 0;
     virtual size_t numOutputs() const = 0;
 };
@@ -46,7 +51,7 @@ class LocalOperator : public LocalOperatorBase {
     virtual size_t numInputs() const { return numInput; }
     virtual size_t numOutputs() const { return numOutput; }
     private:
-    void (*operator_)(
+    void (&operator_)(
          const LocalInputs1D<numInput>& inputs,
          LocalOutputs1D<numOutput>& outputs,
          const LocalMesh& mesh);
@@ -56,15 +61,32 @@ class LocalOperator : public LocalOperatorBase {
                   const LocalInputs1D<numInput>& inputs,
                   LocalOutputs1D<numOutput>& outputs,
                   const LocalMesh& mesh))
-    : operator_(&localOperator) {}
+    : operator_(localOperator) {}
 
-    virtual void apply(const double* pInputs, const double* pInputsL,
-                       const double* pInputsR, double* pOutputs,
-                       const LocalMesh& mesh) const
+    // virtual void apply(const double* pInputs, const double* pInputsL,
+    //                    const double* pInputsR, double* pOutputs,
+    //                    const LocalMesh& mesh) const
+    // {
+    //     LocalInputs1D<numInput> inputs(pInputs, pInputsL, pInputsR);
+    //     LocalOutputs1D<numOutput> outputs(pOutputs);
+    //     operator_(inputs, outputs, mesh);
+    // }
+
+    virtual void applyIterator(const double* pInputsBegin,
+            const double* pInputsLBegin,
+            const double* pInputsRBegin, double* pOutputsBegin,
+            std::vector<LocalMesh>::const_iterator meshBegin,
+            std::vector<LocalMesh>::const_iterator meshEnd) const
     {
-        LocalInputs1D<numInput> inputs(pInputs, pInputsL, pInputsR);
-        LocalOutputs1D<numOutput> outputs(pOutputs);
-        operator_(inputs, outputs, mesh);
+        auto pInputs  = pInputsBegin;
+        auto pInputsL = pInputsLBegin;
+        auto pInputsR = pInputsRBegin;
+        auto pOutputs = pOutputsBegin;
+        for (auto mesh = meshBegin; mesh < meshEnd; ++mesh) {
+            LocalInputs1D<numInput> inputs(pInputs, pInputsL, pInputsR);
+            LocalOutputs1D<numOutput> outputs(pOutputs);
+            operator_(inputs, outputs, *mesh);
+        }
     }
 };
 
@@ -165,14 +187,12 @@ class Diamond1D {
     {
         size_t numInput = pOp->numInputs();
         size_t numOutput = pOp->numOutputs();
-        for (size_t iGrid = iFirst; iGrid <= iLast; ++iGrid)
-        {
-            const double* input = pInput + iGrid * numInput;
-            const double* inputL = pInput + (iGrid - 1) * numInput;
-            const double* inputR = pInput + (iGrid + 1) * numInput;
-            double* output = pOutput + iGrid * numOutput;
-            pOp->apply(input, inputL, inputR, output, localMeshes_[iGrid]);
-        }
+        pOp->applyIterator(pInput + iFirst * numInput,
+                pInput + (iFirst - 1) * numInput,
+                pInput + (iFirst + 1) * numInput,
+                pOutput + iFirst * numOutput,
+                localMeshes_.begin() + iFirst,
+                localMeshes_.begin() + iLast + 1);
     }
 
     void dequeueTwoGrids_(LocalVariablesQueue* pFoundation, double * pData)

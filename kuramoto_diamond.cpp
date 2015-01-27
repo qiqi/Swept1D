@@ -26,9 +26,11 @@ int main(int argc, char*argv[])
         // disc.writePng("test");
     }
 
-    std::clock_t endTime = std::clock();
-    double totalTime = (endTime - startTime) / (double)CLOCKS_PER_SEC;
-    std::cout << totalTime * 1000000 / nStepsPerPixel / nPixel / 4
-              << " microseconds per SubStep" << std::endl;
+    if (iProc() == 0) {
+        std::clock_t endTime = std::clock();
+        double totalTime = (endTime - startTime) / (double)CLOCKS_PER_SEC;
+        std::cout << totalTime * 1000000 / nStepsPerPixel / nPixel / 4
+                  << " microseconds per SubStep" << std::endl;
+    }
 }
 

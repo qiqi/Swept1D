@@ -1,0 +1,37 @@
+#PBS -q debug
+#PBS -l nodes=16:ppn=8
+#PBS -l walltime=00:10:00
+#PBS -N kuramotoDiamondTest
+#PBS -e kuramotoDiamondTest.$PBS_JOBID.err
+#PBS -o kuramotoDiamondTest.$PBS_JOBID.out
+
+module swap openmpi/1.4.5 openmpi-gcc/1.6.5
+module swap pgi/12.9 gcc/4.8.0
+ 
+cd $PBS_O_WORKDIR
+mpirun -np 128 ./kuramoto_classic 8
+mpirun -np 128 ./kuramoto_classic 16
+mpirun -np 128 ./kuramoto_classic 32
+mpirun -np 128 ./kuramoto_classic 64
+mpirun -np 128 ./kuramoto_classic 128
+mpirun -np 128 ./kuramoto_classic 256
+mpirun -np 128 ./kuramoto_classic 512
+mpirun -np 128 ./kuramoto_classic 1024
+mpirun -np 128 ./kuramoto_classic 2048
+mpirun -np 128 ./kuramoto_classic 4096
+mpirun -np 128 ./kuramoto_classic 8192
+mpirun -np 128 ./kuramoto_classic 16384
+mpirun -np 128 ./kuramoto_classic 32768
+mpirun -np 128 ./kuramoto_diamond 8
+mpirun -np 128 ./kuramoto_diamond 16
+mpirun -np 128 ./kuramoto_diamond 32
+mpirun -np 128 ./kuramoto_diamond 64
+mpirun -np 128 ./kuramoto_diamond 128
+mpirun -np 128 ./kuramoto_diamond 256
+mpirun -np 128 ./kuramoto_diamond 512
+mpirun -np 128 ./kuramoto_diamond 1024
+mpirun -np 128 ./kuramoto_diamond 2048
+mpirun -np 128 ./kuramoto_diamond 4096
+mpirun -np 128 ./kuramoto_diamond 8192
+mpirun -np 128 ./kuramoto_diamond 16384
+mpirun -np 128 ./kuramoto_diamond 32768

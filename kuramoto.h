@@ -56,7 +56,7 @@ void updateStep1(const LocalInputs1D<3>& inputs,
     double diff = ((uL + uxxL) + (uR + uxxR) - 2 * (u + uxx))
                 / (mesh.dx * mesh.dx);
     double dudt = -conv - diff;
-    outputs[0] = u0 + 0.5 * DT * dudt;
+    outputs[0] = u0 + DT * dudt;
 }
 
 void init(LocalOutputs1D<1>& u, const LocalMesh& mesh) {

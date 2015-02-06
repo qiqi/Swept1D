@@ -132,10 +132,14 @@ class LocalVariablesQueue {
     }
 
     int isSendOrRecvComplete() {
-        assert(hasSendOrRecvBeenCalled_);
-        int testResult;
-        MPI_Test(&req_, &testResult, MPI_STATUS_IGNORE);
-        return testResult;
+        if (!hasSendOrRecvBeenCalled_) {
+            return false;
+        }
+        else {
+            int testResult;
+            MPI_Test(&req_, &testResult, MPI_STATUS_IGNORE);
+            return testResult;
+        }
     }
 
     void enqueue(size_t numVar, const double* pData) {
@@ -287,7 +291,8 @@ class Diamond1D {
               double* initialData, int numVar)
     :
         localMeshes_(firstGrid, lastGrid),
-        localOperators_(firstOp, lastOp)
+        localOperators_(firstOp, lastOp),
+        pLeftRoof_(0), pRightRoof_(0)
     {
         // std::cout << "Creating Diamond with initial data" << std::endl;
 
@@ -351,7 +356,8 @@ class Diamond1D {
               int iProcRightFoundationIsFrom, int tagRightFoundationIsFrom)
     :
         localMeshes_(firstGrid, lastGrid),
-        localOperators_(firstOp, lastOp)
+        localOperators_(firstOp, lastOp),
+        pLeftRoof_(0), pRightRoof_(0)
     {
         // std::cout << "Creating full Diamond" << std::endl;
 
@@ -389,6 +395,9 @@ class Diamond1D {
     }
 
     bool isSendComplete() {
+        if (pLeftRoof_ == 0 || pRightRoof_ == 0) {
+            return false;
+        }
         return pLeftRoof_->isSendOrRecvComplete()
             && pRightRoof_->isSendOrRecvComplete();
     }
@@ -458,8 +467,6 @@ class DiamondDiscretization1D {
     }
 
     void newDiamond_() {
-        assert(!diamonds_.empty());
-
         const int tagLeftwards = 1, tagRightwards = 2, tagToSelf = 0;
         if (lastDiamondOnTheLeft_) {
             diamonds_.emplace_back(localMeshes_.begin(),
@@ -493,7 +500,7 @@ class DiamondDiscretization1D {
                  const LocalMesh& mesh))
     {
         localOperators_.push_back(new LocalOperator<numInput, numOutput>(localOperator));
-
+        
         if (initialData_ && localOperators_.size() == numGrids_() / 2)
         {
             initialDiamond_();
@@ -509,6 +516,10 @@ class DiamondDiscretization1D {
 
             for (size_t iStep = 0; iStep < numGrids_() / 2; ++iStep) {
                 localOperators_.pop_front();
+            }
+
+            while (diamonds_.size() && diamonds_.front().isSendComplete()) {
+                diamonds_.pop_front();
             }
         }
     }

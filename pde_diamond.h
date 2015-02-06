@@ -43,6 +43,7 @@ class LocalOperatorBase {
             std::vector<LocalMesh>::const_iterator meshEnd) const = 0;
     virtual size_t numInputs() const = 0;
     virtual size_t numOutputs() const = 0;
+    virtual ~LocalOperatorBase() {}
 };
 
 template<size_t numInput, size_t numOutput>
@@ -62,6 +63,8 @@ class LocalOperator : public LocalOperatorBase {
                   LocalOutputs1D<numOutput>& outputs,
                   const LocalMesh& mesh))
     : operator_(localOperator) {}
+
+    virtual ~LocalOperator() {}
 
     // virtual void apply(const double* pInputs, const double* pInputsL,
     //                    const double* pInputsR, double* pOutputs,
@@ -195,8 +198,8 @@ class Diamond1D {
                 pInput + (iFirst - 1) * numInput,
                 pInput + (iFirst + 1) * numInput,
                 pOutput + iFirst * numOutput,
-                localMeshes_.begin() + iFirst,
-                localMeshes_.begin() + iLast + 1);
+                localMeshes_.begin() + iFirst - 1,
+                localMeshes_.begin() + iLast);
     }
 
     void dequeueTwoGrids_(LocalVariablesQueue* pFoundation, double * pData)
@@ -234,6 +237,7 @@ class Diamond1D {
             double * pOutput = new double[numOutput * (nGrid + 2)];
 
             const size_t iFirst = nGrid/2 - iStep, iLast = nGrid/2 + iStep + 1;
+            assert(iFirst > 0 && iLast <= nGrid);
             step_(variablesData_, pOutput, iFirst, iLast, localOperators_[iStep]);
 
             delete[] variablesData_;
@@ -267,8 +271,9 @@ class Diamond1D {
             size_t numOutput = localOperators_[iStep]->numOutputs();
             double * pOutput = new double[numOutput * (nGrid + 2)];
 
-            const size_t iFirst = nGrid/2 - lastStep + iStep,
-                         iLast = nGrid/2 + lastStep - iStep + 1;
+            const size_t iFirst = nGrid/2 - (lastStep - iStep),
+                         iLast  = nGrid/2 + (lastStep - iStep) + 1;
+            assert(iFirst > 0 && iLast <= nGrid);
             step_(variablesData_, pOutput, iFirst, iLast,
                   localOperators_[iStep]);
 
@@ -418,6 +423,10 @@ class DiamondDiscretization1D {
 
     public:
     ~DiamondDiscretization1D() {
+        while (localOperators_.size() > 0) {
+            delete localOperators_.front();
+            localOperators_.pop_front();
+        }
         MPI_Finalize();
     }
 
@@ -515,6 +524,7 @@ class DiamondDiscretization1D {
             newDiamond_();
 
             for (size_t iStep = 0; iStep < numGrids_() / 2; ++iStep) {
+                delete localOperators_.front();
                 localOperators_.pop_front();
             }
 

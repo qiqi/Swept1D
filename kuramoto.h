@@ -1,7 +1,7 @@
 #include "pde_common.h"
 
 const double DT = 0.005;
-const int nStepsPerPixel = 1000, nPixel = 1000;
+const int nStepsPerPixel = 1000, nPixel = 10000;
 
 void uxxStep0(const LocalInputs1D<1>& inputs,
               LocalOutputs1D<2>& outputs,

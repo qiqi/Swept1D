@@ -14,8 +14,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#ifndef DIAMOND_H
-#define DIAMOND_H
+#ifndef PDE_COMMON_H
+#define PDE_COMMON_H
 
 #include<cstring>
 #include<cmath>

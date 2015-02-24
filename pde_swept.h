@@ -1,5 +1,5 @@
-#ifndef DIAMOND_SCHEME_H
-#define DIAMOND_SCHEME_H
+#ifndef PDE_SWEPT_H
+#define PDE_SWEPT_H
 
 #include<vector>
 #include<deque>

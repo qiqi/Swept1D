@@ -2,7 +2,7 @@
 #include <cassert>
 #include <ctime>
 #include "kuramoto.h"
-#include "pde_diamond.h"
+#include "pde_swept.h"
 
 int main(int argc, char*argv[])
 {

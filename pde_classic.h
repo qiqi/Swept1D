@@ -1,5 +1,5 @@
-#ifndef CLASSIC_SCHEME_H
-#define CLASSIC_SCHEME_H
+#ifndef PDE_CLASSIC_H
+#define PDE_CLASSIC_H
 
 #include<vector>
 #include<cstring>

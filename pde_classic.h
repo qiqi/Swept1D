@@ -49,21 +49,18 @@ class ClassicDiscretization1D {
     private:
     template<size_t numVar>
     inline void applyInitialization_(
-         void (&localOperator)(
-               LocalOutputs1D<numVar>&, const LocalMesh&),
+         void (&localOperator)(SpatialPoint<0, numVar>&),
          double *data, int iGrid)
     {
         double (*pData)[numVar] = (double (*)[numVar]) data;
-        LocalOutputs1D<numVar> localVars(pData[iGrid]);
-        LocalMesh localMesh(x0_ + iGrid * dx_, dx_);
-        localOperator(localVars, localMesh);
+        SpatialPoint<0, numVar> p(x0_ + iGrid * dx_, 0, pData[iGrid]);
+        localOperator(p);
     }
 
     public:
     template<size_t numVar>
     ClassicDiscretization1D(int numGrids, double dx,
-         void (&localOperator)(
-               LocalOutputs1D<numVar>&, const LocalMesh&))
+         void (&localOperator)(SpatialPoint<0, numVar>&))
     :
         numGrids_(numGrids), dx_(dx), numVariables_(numVar),
         pngFilename_(0), png_(0,0)
@@ -86,30 +83,23 @@ class ClassicDiscretization1D {
 
     private:
     template<size_t numInput, size_t numOutput>
-    void applyLocalOp_(void (&localOperator)(
-                     const LocalInputs1D<numInput>& inputs,
-                     LocalOutputs1D<numOutput>& outputs,
-                     const LocalMesh& mesh),
-                 double * input, double * output, int iGrid)
+    void applyLocalOp_(void (&localOperator)(SpatialPoint<numInput,numOutput>& local),
+                 const double * input, double * output, int iGrid)
     {
-        double (*pInput)[numInput] = (double(*)[numInput])input;
+        const double (*pInput)[numInput] = (const double(*)[numInput])input;
         double (*pOutput)[numOutput] = (double(*)[numOutput])output;
 
-        LocalInputs1D<numInput> localInputs(pInput[iGrid],
-                                               pInput[iGrid - 1],
-                                               pInput[iGrid + 1]);
-        LocalOutputs1D<numOutput> localOutputs(pOutput[iGrid]);
-        LocalMesh localMesh(iGrid * dx_, dx_);
+        SpatialPoint<numInput, numOutput> p(iGrid * dx_, pInput[iGrid], pOutput[iGrid]);
+        SpatialPoint<numInput, numOutput> pL((iGrid-1) * dx_, pInput[iGrid-1], 0);
+        SpatialPoint<numInput, numOutput> pR((iGrid+1) * dx_, pInput[iGrid+1], 0);
+        p.addNeighbors(&pL, &pR);
 
-        localOperator(localInputs, localOutputs, localMesh);
+        localOperator(p);
     }
 
     public:
     template<size_t numInput, size_t numOutput>
-    void applyOp(void (&localOperator)(
-                 const LocalInputs1D<numInput>& inputs,
-                 LocalOutputs1D<numOutput>& outputs,
-                 const LocalMesh& mesh))
+    void applyOp(void (&localOperator)(SpatialPoint<numInput,numOutput>& point))
     {
         assert(numInput == numVariables_);
         double * newVariablesData = new double[numOutput * (numGrids_ + 2)];

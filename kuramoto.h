@@ -1,65 +1,64 @@
 #include "pde_common.h"
 
 const double DT = 0.005;
-const int nStepsPerPixel = 1000, nPixel = 10000;
+const int nStepsPerPixel = 1000, nPixel = 100;
 
-void uxxStep0(const LocalInputs1D<1>& inputs,
-              LocalOutputs1D<2>& outputs,
-              const LocalMesh& mesh) {
-    double u = inputs[0],
-           uL = inputs[0].nbr(0),
-           uR = inputs[0].nbr(1);
-    outputs[0] = u;
-    outputs[1] = (uL + uR - 2 * u) / (mesh.dx * mesh.dx);
+void uxxStep0(SpatialPoint<1,2>& point)
+{
+    double dx = point.x - point.nbr(0).x;
+    double u = point.inputs(0),
+           uL = point.nbr(0).inputs(0),
+           uR = point.nbr(1).inputs(0);
+    point.outputs(0) = u;
+    point.outputs(1) = (uL + uR - 2 * u) / (dx * dx);
 }
 
-void updateStep0(const LocalInputs1D<2>& inputs,
-                 LocalOutputs1D<2>& outputs,
-                 const LocalMesh& mesh) {
-    double u = inputs[0],
-           uL = inputs[0].nbr(0),
-           uR = inputs[0].nbr(1);
-    double uxx = inputs[1],
-           uxxL = inputs[1].nbr(0),
-           uxxR = inputs[1].nbr(1);
-    double conv = (uR*uR - uL*uL) / (4 * mesh.dx);
-    double diff = ((uL + uxxL) + (uR + uxxR) - 2 * (u + uxx))
-                / (mesh.dx * mesh.dx);
+void updateStep0(SpatialPoint<2,2>& point)
+{
+    double dx = point.x - point.nbr(0).x;
+    double u = point.inputs(0),
+           uL = point.nbr(0).inputs(0),
+           uR = point.nbr(1).inputs(0);
+    double uxx = point.inputs(1),
+           uxxL = point.nbr(0).inputs(1),
+           uxxR = point.nbr(1).inputs(1);
+    double conv = (uR*uR - uL*uL) / (4 * dx);
+    double diff = ((uL + uxxL) + (uR + uxxR) - 2 * (u + uxx)) / (dx * dx);
     double dudt = -conv - diff;
-    outputs[0] = u;
-    outputs[1] = u + 0.5 * DT * dudt;
+    point.outputs(0) = u;
+    point.outputs(1) = u + 0.5 * DT * dudt;
 }
 
-void uxxStep1(const LocalInputs1D<2>& inputs,
-              LocalOutputs1D<3>& outputs,
-              const LocalMesh& mesh) {
-    double u0 = inputs[0],
-           u  = inputs[1],
-           uL = inputs[1].nbr(0),
-           uR = inputs[1].nbr(1);
-    outputs[0] = u0;
-    outputs[1] = u;
-    outputs[2] = (uL + uR - 2 * u) / (mesh.dx * mesh.dx);
+void uxxStep1(SpatialPoint<2,3>& point)
+{
+    double dx = point.x - point.nbr(0).x;
+    double u0 = point.inputs(0),
+           u  = point.inputs(1),
+           uL = point.nbr(0).inputs(1),
+           uR = point.nbr(1).inputs(1);
+    point.outputs(0) = u0;
+    point.outputs(1) = u;
+    point.outputs(2) = (uL + uR - 2 * u) / (dx * dx);
 }
 
-void updateStep1(const LocalInputs1D<3>& inputs,
-                 LocalOutputs1D<1>& outputs,
-                 const LocalMesh& mesh) {
-    double u0 = inputs[0];
-    double u  = inputs[1],
-           uL = inputs[1].nbr(0),
-           uR = inputs[1].nbr(1);
-    double uxx  = inputs[2],
-           uxxL = inputs[2].nbr(0),
-           uxxR = inputs[2].nbr(1);
-    double conv = (uR*uR - uL*uL) / (4 * mesh.dx);
-    double diff = ((uL + uxxL) + (uR + uxxR) - 2 * (u + uxx))
-                / (mesh.dx * mesh.dx);
+void updateStep1(SpatialPoint<3,1>& point)
+{
+    double dx = point.x - point.nbr(0).x;
+    double u0 = point.inputs(0);
+    double u = point.inputs(1),
+           uL = point.nbr(0).inputs(1),
+           uR = point.nbr(1).inputs(1);
+    double uxx = point.inputs(2),
+           uxxL = point.nbr(0).inputs(2),
+           uxxR = point.nbr(1).inputs(2);
+    double conv = (uR*uR - uL*uL) / (4 * dx);
+    double diff = ((uL + uxxL) + (uR + uxxR) - 2 * (u + uxx)) / (dx * dx);
     double dudt = -conv - diff;
-    outputs[0] = u0 + DT * dudt;
+    point.outputs(0) = u0 + DT * dudt;
 }
 
-void init(LocalOutputs1D<1>& u, const LocalMesh& mesh) {
+void init(SpatialPoint<0,1>& point) {
     const double PI = atan(1.0) * 4;
-    u[0] = cos(mesh.x / 128. * 19 * PI) * 2.;
+    point.outputs(0) = cos(point.x / 128. * 19 * PI) * 2.;
 }
+

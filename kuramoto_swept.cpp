@@ -10,7 +10,7 @@ int main(int argc, char*argv[])
         exit(-1);
     }
     size_t numGridPerProc = atoi(argv[1]);
-    DiamondDiscretization1D disc(numGridPerProc, 0.5, init);
+    SweptDiscretization1D disc(numGridPerProc, 0.5, init);
     // disc.colorMap.red.set(0, -2., 2.);
 
     std::clock_t startTime = std::clock();

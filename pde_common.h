@@ -51,88 +51,54 @@
 // 
 // Each "substep" is implemented as a function:
 // 
-// void substep(LocalInputs1D<numInput>& inputs,
-//              LocalOutputs1D<numOutput>& inputs,
-//              LocalMesh& mesh);
+// void substep(TODO
 // 
 // where numInput and numOutput are concrete numbers.
 // For example, scalar gradient computation in 1D can be
 // implemented as
 //
-// void scalarGradient(LocalInputs1D<1>& inputs,
-//                     LocalOutputs1D<2>& outputs,
-//                     LocalMesh& mesh)
+// void scalarGradient(TODO
 // {
 //     outputs[0] = inputs[0]); // "forwarding" the field value
 //     double leftVal = inputs[0].nbr(0);
 //     double rightVal = inputs[0].nbr(1);
-//     outputs[1] = (rightVal - leftVal) / (2 * mesh.dx));
+//     outputs[1] = (rightVal - leftVal) / (2 * dx));
 // }
 
-template<size_t numVar>
-class LocalInputs1D {
-    private:
-    const double *pVal_, *pNbr_[2];
-
+template<size_t numInput, size_t numOutput>
+class SpatialPoint {
     public:
-    class SingleVar_ {
-        private:
-            size_t iVar_;
-            LocalInputs1D<numVar>* pInputs_;
-        public:
-        void assign(LocalInputs1D<numVar>* inputs, size_t iVar) {
-            pInputs_ = inputs;
-            iVar_ = iVar;
-        }
-
-        operator double() const {
-            return pInputs_->pVal_[iVar_];
-        }
-
-        double nbr(size_t iNbr) const {
-            assert(iNbr < 2);
-            return pInputs_->pNbr_[iNbr][iVar_];
-        }
-    };
+    const double x;
 
     private:
-    SingleVar_ singleVars_[numVar];
+    const double * const inputs_;
+    double * const outputs_;
+    const SpatialPoint* nbr_[2];
 
     public:
-    LocalInputs1D() : pVal_(0) {}
-    LocalInputs1D(const double* pVal, const double* pValL, const double* pValR)
-    {
-        pVal_ = pVal;
-        pNbr_[0] = pValL;
-        pNbr_[1] = pValR;
-        for (int iVar = 0; iVar < numVar; ++iVar) {
-            singleVars_[iVar].assign(this, iVar);
-        }
+    SpatialPoint(double x, const double * inputs, double * outputs)
+        : x(x), inputs_(inputs), outputs_(outputs), nbr_{0, 0} {}
+
+    void addNeighbors(const SpatialPoint* nbrL, const SpatialPoint* nbrR) {
+        nbr_[0] = nbrL;
+        nbr_[1] = nbrR;
     }
 
-    const SingleVar_& operator[] (size_t iVar) const {
-        assert(iVar < numVar);
-        return singleVars_[iVar];
+    const SpatialPoint& nbr(size_t i) {
+        assert(i < 2);
+        assert(nbr_[i] != 0);
+        return *nbr_[i];
     }
-};
 
-template<size_t numVar>
-class LocalOutputs1D {
-    private:
-    double *pVal_;
-
-    public:
-    LocalOutputs1D(double* pVal) : pVal_(pVal) {}
-
-    double& operator[](size_t iVar) {
-        return pVal_[iVar];
+    double inputs(size_t i) const {
+        assert(i < numInput);
+        return inputs_[i];
     }
-};
 
-struct LocalMesh {
-    double x, dx;
-    LocalMesh(double x, double dx) : x(x), dx(dx) {}
-    LocalMesh() : x(nan("")), dx(nan("")) {}
+    double & outputs(size_t i) {
+        assert(i < numOutput);
+        return outputs_[i];
+    }
 };
 
 // ====== common interface of Discretization ======= //
@@ -143,14 +109,10 @@ class Discretization {
     public:
     template<size_t numVar>
     Discretization(int numGrids, double dx,
-         void (&localOperator)(
-               LocalOutputs1D<numVar>&, const LocalMesh&));
+         void (&localOperator)(SpatialPoint<0, numVar> local));
 
     template<size_t numInput, size_t numOutput>
-    void applyOp(void (&localOperator)(
-                 const LocalInputs1D<numInput>& inputs,
-                 LocalOutputs1D<numOutput>& outputs,
-                 const LocalMesh& mesh));
+    void applyOp(void (&localOperator)(SpatialPoint<numInput,numOutput>& point));
 };
 
 // ====== common utilities for pde_diamond and pde_classic ====== //

@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=swept32
-#SBATCH --workdir=/master/home/qiqi/git/Diamond1D
+#SBATCH --workdir=/master/home/qiqi/git/Swept1D
 #SBATCH --output=swept32.out
 #SBATCH --error=swept32.err
 #SBATCH --nodes=8

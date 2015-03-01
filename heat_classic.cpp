@@ -24,7 +24,7 @@ int main(int argc, char*argv[])
     if (iProc() == 0) {
         std::clock_t endTime = std::clock();
         double totalTime = (endTime - startTime) / (double)CLOCKS_PER_SEC;
-        std::cout << totalTime * 1000000 / nStepsPerPixel / nPixel / 4
+        std::cout << totalTime * 1000000 / nStepsPerPixel / nPixel
                   << " microseconds per SubStep" << std::endl;
     }
 }

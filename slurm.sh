@@ -1,9 +1,10 @@
 #!/bin/bash
-#SBATCH --job-name=kura64
+#SBATCH --job-name=swept32
 #SBATCH --workdir=/master/home/qiqi/git/Diamond1D
-#SBATCH --output=kura64.out
-#SBATCH --error=kura64.err
-#SBATCH --nodes=16
+#SBATCH --output=swept32.out
+#SBATCH --error=swept32.err
+#SBATCH --nodes=8
 #SBATCH --ntasks-per-node=4
  
-make run
+make run_heat
+make run_kuramoto

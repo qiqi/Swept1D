@@ -1,4 +1,4 @@
-default:	kuramoto_classic kuramoto_swept heat_classic heat_swept
+default:	kuramoto_classic kuramoto_swept heat_classic heat_swept euler_classic euler_swept
 
 COPT = -O3 -std=c++11 -Wall
 # COPT = -O0 -g -std=c++11 -Wall
@@ -93,5 +93,50 @@ run_kuramoto:	kuramoto_classic kuramoto_swept
 	mpirun ./kuramoto_swept 32769
 	mpirun ./kuramoto_swept 65536
 
+# ------------------- EULER ------------------#
+
+euler_classic:	euler_classic.o
+	mpic++ $(COPT) -o euler_classic euler_classic.o -L/master/home/qiqi/lib -lpng
+
+euler_swept:    euler_swept.o
+	mpic++ $(COPT) -o euler_swept euler_swept.o -L/master/home/qiqi/lib -lpng
+
+euler_classic.o:  euler_classic.cpp euler.h pde_classic.h pde_common.h PngWriter.hpp
+	mpic++ $(COPT) -I/master/home/qiqi/include/libpng16 -c $< 
+
+euler_swept.o:  euler_swept.cpp euler.h pde_swept.h pde_common.h PngWriter.hpp
+	mpic++ $(COPT) -I/master/home/qiqi/include/libpng16 -c $< 
+
+run_euler:	euler_classic euler_swept
+	mpirun ./euler_classic 8
+	mpirun ./euler_classic 16
+	mpirun ./euler_classic 32
+	mpirun ./euler_classic 64
+	mpirun ./euler_classic 128
+	mpirun ./euler_classic 256
+	mpirun ./euler_classic 512
+	mpirun ./euler_classic 1024
+	mpirun ./euler_classic 2048
+	mpirun ./euler_classic 4096
+	mpirun ./euler_classic 8192
+	mpirun ./euler_classic 8192
+	mpirun ./euler_classic 16384
+	mpirun ./euler_classic 32769
+	mpirun ./euler_classic 65536
+	mpirun ./euler_swept 8
+	mpirun ./euler_swept 16
+	mpirun ./euler_swept 32
+	mpirun ./euler_swept 64
+	mpirun ./euler_swept 128
+	mpirun ./euler_swept 256
+	mpirun ./euler_swept 512
+	mpirun ./euler_swept 1024
+	mpirun ./euler_swept 2048
+	mpirun ./euler_swept 4096
+	mpirun ./euler_swept 8192
+	mpirun ./euler_swept 16384
+	mpirun ./euler_swept 32769
+	mpirun ./euler_swept 65536
+
 clean:
-	rm -f *.o kuramoto_swept kuramoto_classic heat_swept heat_classic
+	rm -f *.o kuramoto_swept kuramoto_classic heat_swept heat_classic euler_swept euler_classic

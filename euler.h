@@ -9,18 +9,17 @@ inline double pressure(double rho, double rhoU, double rhoE) {
     return (gamma - 1) * (rhoE - kineticE);
 }
 
-void pRatioStep0(const LocalInputs1D<3>& inputs,
-                         LocalOutputs1D<5>& outputs,
-                         const LocalMesh&) {
-    outputs[0] = inputs[0];
-    outputs[1] = inputs[1];
-    outputs[2] = inputs[2];
+void pRatioStep0(SpatialPoint<3,4>& sp) {
+    sp.outputs(0) = sp.inputs(0);
+    sp.outputs(1) = sp.inputs(1);
+    sp.outputs(2) = sp.inputs(2);
 
-    double p  = pressure(inputs[0],        inputs[1],        inputs[2]);
-    double pL = pressure(inputs[0].nbr(0), inputs[1].nbr(0), inputs[2].nbr(0));
-    double pR = pressure(inputs[0].nbr(1), inputs[1].nbr(1), inputs[2].nbr(1));
+    auto Lp = sp.nbr(0), Rp = sp.nbr(1);
+    double p  = pressure(sp.inputs(0), sp.inputs(1), sp.inputs(2));
+    double pL = pressure(Lp.inputs(0), Lp.inputs(1), Lp.inputs(2));
+    double pR = pressure(Rp.inputs(0), Rp.inputs(1), Rp.inputs(2));
 
-    outputs[3] = (pR - p) / (p - pL);
+    sp.outputs(3) = (pR - p) / (p - pL);
 }
 
 inline double limitedReconstruction(double w, double wNbr, double r) {
@@ -32,7 +31,8 @@ inline double limitedReconstruction(double w, double wNbr, double r) {
     }
 }
 
-inline void eulerFlux(double flux[3], double wMinus[3], double wPlus[3]) {
+inline void eulerFlux(double flux[3], double wMinus[3], double wPlus[3])
+{
     double rhoMinus = wMinus[0], rhoPlus = wPlus[0];
     double uMinus = wMinus[1] / rhoMinus, uPlus = wPlus[1] / rhoPlus;
     double EMinus = wMinus[2] / rhoMinus, EPlus = wPlus[2] / rhoPlus;
@@ -47,69 +47,79 @@ inline void eulerFlux(double flux[3], double wMinus[3], double wPlus[3]) {
     flux[3] = rho * u * E + u * p;
 }
 
-void updateStep0(const LocalInputs1D<2>& inputs,
-                 LocalOutputs1D<2>& outputs,
-                 const LocalMesh& mesh)
+inline void eulerFlux0(double flux[3], const SpatialPoint<4,6>& L,
+                                       const SpatialPoint<4,6>& R)
 {
-    outputs[0] = inputs[0];
-    outputs[1] = inputs[1];
-    outputs[2] = inputs[2];
-
-    double wLminus[3], wLplus[3];
+    double wL[3], wR[3];
     for (size_t i = 0; i < 3; ++i) {
-        wLminus[i] = limitedReconstruction(
-                     inputs[i].nbr(0), inputs[i], inputs[3].nbr(0));
-        wLplus[i]  = limitedReconstruction(
-                     inputs[i], inputs[i].nbr(0), 1./ inputs[3]);
+        wL[i] = limitedReconstruction(L.inputs(i), R.inputs(i), L.inputs(3));
+        wR[i] = limitedReconstruction(R.inputs(i), L.inputs(i), 1./R.inputs(3));
     }
-    double fluxL[3];
-    eulerFlux(fluxL, wLminus, wLplus);
+    eulerFlux(flux, wL, wR);
+}
 
-    double wRminus[3], wRplus[3];
-    for (size_t i = 0; i < 3; ++i) {
-        wRminus[i] = limitedReconstruction(
-         inputs[i], inputs[i].nbr(1), inputs[3]);
-        wRplus[i]  = limitedReconstruction(
-         inputs[i].nbr(1), inputs[i], 1./ inputs[3].nbr(1));
+void updateStep0(SpatialPoint<4,6>& sp) {
+    sp.outputs(0) = sp.inputs(0);
+    sp.outputs(1) = sp.inputs(1);
+    sp.outputs(2) = sp.inputs(2);
+
+    auto Lp = sp.nbr(0), Rp = sp.nbr(1);
+    double fluxL[3], fluxR[3];
+    eulerFlux0(fluxL, Lp, sp);
+    eulerFlux0(fluxR, sp, Rp);
+
+    double dx = sp.x - Lp.x;
+    sp.outputs(3) = sp.inputs(0) - 0.5 * DT * (fluxR[0] - fluxL[0]) / dx;
+    sp.outputs(4) = sp.inputs(1) - 0.5 * DT * (fluxR[1] - fluxL[1]) / dx;
+    sp.outputs(5) = sp.inputs(2) - 0.5 * DT * (fluxR[2] - fluxL[2]) / dx;
+}
+
+void pRatioStep1(SpatialPoint<6,7>& sp) {
+    sp.outputs(0) = sp.inputs(0); sp.outputs(1) = sp.inputs(1);
+    sp.outputs(2) = sp.inputs(2); sp.outputs(3) = sp.inputs(3);
+    sp.outputs(4) = sp.inputs(4); sp.outputs(5) = sp.inputs(5);
+
+    auto Lp = sp.nbr(0), Rp = sp.nbr(1);
+    double p  = pressure(sp.inputs(3), sp.inputs(4), sp.inputs(5));
+    double pL = pressure(Lp.inputs(3), Lp.inputs(4), Lp.inputs(5));
+    double pR = pressure(Rp.inputs(3), Rp.inputs(4), Rp.inputs(5));
+
+    sp.outputs(6) = (pR - p) / (p - pL);
+}
+
+inline void eulerFlux1(double flux[3], const SpatialPoint<7,3>& L,
+                                       const SpatialPoint<7,3>& R)
+{
+    double wL[3], wR[3];
+    for (size_t i = 3; i < 6; ++i) {
+        wL[i-3] = limitedReconstruction(L.inputs(i), R.inputs(i), L.inputs(6));
+        wR[i-3] = limitedReconstruction(R.inputs(i), L.inputs(i), 1./R.inputs(6));
     }
-    double fluxR[3];
-    eulerFlux(fluxR, wRminus, wRplus);
-
-    outputs[3] = inputs[0] - 0.5 * DT * (fluxR[0] - fluxL[0]) / mesh.dx;
-    outputs[4] = inputs[1] - 0.5 * DT * (fluxR[1] - fluxL[1]) / mesh.dx;
-    outputs[5] = inputs[2] - 0.5 * DT * (fluxR[2] - fluxL[2]) / mesh.dx;
+    eulerFlux(flux, wL, wR);
 }
 
-void uxxStep1(const LocalInputs1D<2>& inputs,
-              LocalOutputs1D<3>& outputs,
-              const LocalMesh& mesh) {
-    double u0 = inputs[0],
-           u  = inputs[1],
-           uL = inputs[1].nbr(0),
-           uR = inputs[1].nbr(1);
-    outputs[0] = u0;
-    outputs[1] = u;
-    outputs[2] = (uL + uR - 2 * u) / (mesh.dx * mesh.dx);
+void updateStep1(SpatialPoint<7,3>& sp) {
+    auto Lp = sp.nbr(0), Rp = sp.nbr(1);
+    double fluxL[3], fluxR[3];
+    eulerFlux1(fluxL, Lp, sp);
+    eulerFlux1(fluxR, sp, Rp);
+
+    double dx = sp.x - Lp.x;
+    sp.outputs(0) = sp.inputs(0) - DT * (fluxR[0] - fluxL[0]) / dx;
+    sp.outputs(1) = sp.inputs(1) - DT * (fluxR[1] - fluxL[1]) / dx;
+    sp.outputs(2) = sp.inputs(2) - DT * (fluxR[2] - fluxL[2]) / dx;
 }
 
-void updateStep1(const LocalInputs1D<3>& inputs,
-                 LocalOutputs1D<1>& outputs,
-                 const LocalMesh& mesh) {
-    double u0 = inputs[0];
-    double u  = inputs[1],
-           uL = inputs[1].nbr(0),
-           uR = inputs[1].nbr(1);
-    double uxx  = inputs[2],
-           uxxL = inputs[2].nbr(0),
-           uxxR = inputs[2].nbr(1);
-    double conv = (uR*uR - uL*uL) / (4 * mesh.dx);
-    double diff = ((uL + uxxL) + (uR + uxxR) - 2 * (u + uxx))
-                / (mesh.dx * mesh.dx);
-    double dudt = -conv - diff;
-    outputs[0] = u0 + DT * dudt;
+void init(SpatialPoint<0,3>& sp) {
+    const double gamma = 1.4;
+    if (sp.x > 0) {
+        sp.outputs(0) = 1.0;
+        sp.outputs(1) = 0.0;
+        sp.outputs(2) = 1.0 / (gamma - 1);
+    } else {
+        sp.outputs(0) = 0.125;
+        sp.outputs(1) = 0.0;
+        sp.outputs(2) = 0.1 / (gamma - 1);
+    }
 }
 
-void init(LocalOutputs1D<1>& u, const LocalMesh& mesh) {
-    const double PI = atan(1.0) * 4;
-    u[0] = cos(mesh.x / 128. * 19 * PI) * 2.;
-}

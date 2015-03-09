@@ -1,7 +1,7 @@
 default:	kuramoto_classic kuramoto_swept heat_classic heat_swept euler_classic euler_swept
 
-COPT = -O3 -std=c++11 -Wall
-# COPT = -O0 -g -std=c++11 -Wall
+# COPT = -O3 -std=c++11 -Wall
+COPT = -O0 -g -std=c++11 -Wall
 
 # --------------------- HEAT --------------------#
 

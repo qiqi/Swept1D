@@ -14,11 +14,14 @@
 
 class ClassicDiscretization1D {
     private:
-    int numGrids_;
+    size_t numGrids_;
     double dx_;
     double x0_;
-    int numVariables_;
-    double * variablesData_;
+
+    int numVariables_, numLastOutput_;
+    double * variablesData_, * inputs_, * outputs_;
+
+    SpatialPoint<0,0> * spatialPoints_;
 
     char* pngFilename_;
     PngWriter png_;
@@ -32,13 +35,6 @@ class ClassicDiscretization1D {
     }
 
     public:
-    ClassicDiscretization1D()
-    : numGrids_(100), dx_(1.), 
-      variablesData_(0), pngFilename_(0), png_(0,0)
-    {
-        commonInit_();
-    }
-
     virtual ~ClassicDiscretization1D() {
         if (variablesData_) {
             delete variablesData_;
@@ -46,79 +42,101 @@ class ClassicDiscretization1D {
         MPI_Finalize();
     }
 
-    private:
-    template<size_t numVar>
-    inline void applyInitialization_(
-         void (&localOperator)(SpatialPoint<0, numVar>&),
-         double *data, int iGrid)
-    {
-        double (*pData)[numVar] = (double (*)[numVar]) data;
-        SpatialPoint<0, numVar> p(x0_ + iGrid * dx_, 0, pData[iGrid]);
-        localOperator(p);
-    }
-
     public:
     template<size_t numVar>
     ClassicDiscretization1D(int numGrids, double dx,
          void (&localOperator)(SpatialPoint<0, numVar>&))
     :
-        numGrids_(numGrids), dx_(dx), numVariables_(numVar),
+        numGrids_(numGrids), dx_(dx),
+        numVariables_(numVar), numLastOutput_(numVar),
         pngFilename_(0), png_(0,0)
     {
         commonInit_();
-        variablesData_ = new double[numVar * (numGrids_ + 2)];
-    
-        const int iGridLeft = 1, iGridRight = numGrids_;
-        applyInitialization_(localOperator, variablesData_, iGridLeft);
-        applyInitialization_(localOperator, variablesData_, iGridRight);
 
-        ClassicSyncer1D sync(variablesData_, numGrids_, numVar);
+        variablesData_ = new double[2 * numVar * (numGrids_ + 2)];
+        inputs_ = variablesData_;
+        outputs_ = variablesData_ + numVar;
 
-        for (int iGrid = iGridLeft + 1; iGrid < iGridRight; ++iGrid) {
-            applyInitialization_(localOperator, variablesData_, iGrid);
+        spatialPoints_ = (SpatialPoint<0,0>*)
+            malloc((numGrids_ + 2) * sizeof(SpatialPoint<0,0>));
+        for (size_t i = 0; i < numGrids_ + 2; ++i) {
+            auto p = spatialPoints_ + i;
+            auto pL = (i == 0) ? 0 : spatialPoints_ + i - 1;
+            auto pR = (i == numGrids_ + 1) ? 0 : spatialPoints_ + i + 1;
+            size_t iShift = i * numVariables_ * 2;
+            new(p) SpatialPoint<0,0>(
+                    x0_ + (i - 1) * dx_, iShift, inputs_, outputs_, pL, pR);
+            localOperator(*(SpatialPoint<0, numVar>*)p);
         }
 
+        ClassicSyncer1D sync(
+                pOutput_(1), pOutput_(numGrids_),
+                pOutput_(0), pOutput_(numGrids_+1), numVar);
         sync.waitTillDone();
     }
 
     private:
-    template<size_t numInput, size_t numOutput>
-    void applyLocalOp_(void (&localOperator)(SpatialPoint<numInput,numOutput>& local),
-                 const double * input, double * output, int iGrid)
-    {
-        const double (*pInput)[numInput] = (const double(*)[numInput])input;
-        double (*pOutput)[numOutput] = (double(*)[numOutput])output;
 
-        SpatialPoint<numInput, numOutput> p(iGrid * dx_, pInput[iGrid], pOutput[iGrid]);
-        SpatialPoint<numInput, numOutput> pL((iGrid-1) * dx_, pInput[iGrid-1], 0);
-        SpatialPoint<numInput, numOutput> pR((iGrid+1) * dx_, pInput[iGrid+1], 0);
-        p.addNeighbors(&pL, &pR);
+    void resizeWorkspace(size_t newNumVariables) {
+        double * newVariablesData
+            = new double[2 * newNumVariables * (numGrids_ + 2)];
+        double * newInputs = newVariablesData;
+        double * newOutputs = newVariablesData + newNumVariables;
+        for (size_t i = 0; i < numGrids_ + 2; ++ i) {
+            void * dest = newOutputs + i * 2 * newNumVariables;
+            void * src = outputs_ + i * 2 * numVariables_;
+            memcpy(dest, src, sizeof(double) * numVariables_);
+        }
+        delete[] variablesData_;
+        numVariables_ = newNumVariables;
+        variablesData_ = newVariablesData;
+        inputs_ = newInputs;
+        outputs_ = newOutputs;
 
-        localOperator(p);
+        for (size_t i = 0; i < numGrids_ + 2; ++i) {
+            auto p = spatialPoints_ + i;
+            auto pL = (i == 0) ? 0 : p - 1;
+            auto pR = (i == numGrids_ + 1) ? 0 : p + 1;
+            size_t iShift = i * numVariables_ * 2;
+            p->~SpatialPoint();
+            new(p) SpatialPoint<0,0>(
+                    x0_ + (i - 1) * dx_, iShift, inputs_, outputs_, pL, pR);
+        }
+    }
+
+    double * pInput_(size_t iGrid) {
+        assert(iGrid <= numGrids_ + 1);
+        return inputs_ + iGrid * 2 * numVariables_;
+    }
+    double * pOutput_(size_t iGrid) {
+        assert(iGrid <= numGrids_ + 1);
+        return outputs_ + iGrid * 2 * numVariables_;
     }
 
     public:
     template<size_t numInput, size_t numOutput>
     void applyOp(void (&localOperator)(SpatialPoint<numInput,numOutput>& point))
     {
-        assert(numInput == numVariables_);
-        double * newVariablesData = new double[numOutput * (numGrids_ + 2)];
-
-        const int iGridLeft = 1, iGridRight = numGrids_;
-
-        applyLocalOp_(localOperator, variablesData_, newVariablesData, iGridLeft);
-        applyLocalOp_(localOperator, variablesData_, newVariablesData, iGridRight);
-
-        ClassicSyncer1D sync(newVariablesData, numGrids_, numOutput);
-
-        for (int iGrid = iGridLeft + 1; iGrid < iGridRight; ++iGrid) {
-            applyLocalOp_(localOperator, variablesData_, newVariablesData, iGrid);
+        assert(numInput == numLastOutput_);
+        numLastOutput_ = numOutput;
+        if (numOutput > numVariables_) {
+            resizeWorkspace(numOutput);
         }
 
-        delete[] variablesData_;
-        variablesData_ = newVariablesData;
-        numVariables_ = numOutput;
+        double * tmp = inputs_;
+        inputs_ = outputs_;
+        outputs_ = tmp;
 
+        localOperator((SpatialPoint<numInput, numOutput>&)spatialPoints_[1]);
+        localOperator((SpatialPoint<numInput, numOutput>&)spatialPoints_[numGrids_]);
+
+        ClassicSyncer1D sync(
+                pOutput_(1), pOutput_(numGrids_),
+                pOutput_(0), pOutput_(numGrids_+1), numOutput);
+
+        for (size_t iGrid = 2; iGrid < numGrids_; ++iGrid) {
+            localOperator((SpatialPoint<numInput, numOutput>&)spatialPoints_[iGrid]);
+        }
         sync.waitTillDone();
     }
 
@@ -129,7 +147,7 @@ class ClassicDiscretization1D {
     struct {
         class VarColor_ {
             private:
-            int iVar_;
+            size_t iVar_;
             double low_, high_;
 
             public:
@@ -140,7 +158,7 @@ class ClassicDiscretization1D {
                 high_ = high;
             }
 
-            void assertIVarLessThan(int numVars) {
+            void assertIVarLessThan(size_t numVars) {
                 assert(iVar_ < numVars);
             }
 
@@ -158,9 +176,9 @@ class ClassicDiscretization1D {
 
     void variablesToColor(int iStep)
     {
-        for (int iGrid = 0; iGrid < numGrids_; ++iGrid) {
+        for (size_t iGrid = 0; iGrid < numGrids_; ++iGrid) {
             colorMap.assertIVarLessThan(numVariables_);
-            double* pGrid = variablesData_ + iGrid * numVariables_;
+            double* pGrid = outputs_ + 2 * iGrid * numVariables_;
             double r = colorMap.red.map(pGrid),
                    g = colorMap.green.map(pGrid),
                    b = colorMap.blue.map(pGrid);

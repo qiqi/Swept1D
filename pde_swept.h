@@ -34,6 +34,9 @@ class LocalOperatorBase {
     public:
     virtual void applyToArray(size_t nGrid, const double* pInputsBegin,
             double* pOutputsBegin, double x0, double dx) const = 0;
+    virtual void applyToIterator(
+            std::vector<SpatialPoint<0,0>>::iterator pBegin,
+            std::vector<SpatialPoint<0,0>>::iterator pEnd) const = 0;
     virtual size_t numInputs() const = 0;
     virtual size_t numOutputs() const = 0;
     virtual ~LocalOperatorBase() {}
@@ -75,6 +78,16 @@ class LocalOperator : public LocalOperatorBase {
             SpatialPoint<numInput, numOutput> pR(x + dx, pInput[iGrid+1], 0);
             p.addNeighbors(&pL, &pR);
 
+            operator_(p);
+        }
+    }
+
+    virtual void applyToIterator(
+            std::vector<SpatialPoint<0,0>>::iterator pBegin,
+            std::vector<SpatialPoint<0,0>>::iterator pEnd) const
+    {
+        for (auto it = pBegin; it < pEnd; ++it) {
+            auto p = (SpatialPoint<numInput, numOutput>&) (*it);
             operator_(p);
         }
     }

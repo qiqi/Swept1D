@@ -71,33 +71,34 @@ class SpatialPoint {
     const double x;
 
     private:
-    const double * const inputs_;
-    double * const outputs_;
-    const SpatialPoint* nbr_[2];
+    size_t iShift_;
+    double * const & inputs_;
+    double * const & outputs_;
+    SpatialPoint const * const nbr_[2];
 
     public:
-    SpatialPoint(double x, const double * inputs, double * outputs)
-        : x(x), inputs_(inputs), outputs_(outputs), nbr_{0, 0} {}
-
-    void addNeighbors(const SpatialPoint* nbrL, const SpatialPoint* nbrR) {
-        nbr_[0] = nbrL;
-        nbr_[1] = nbrR;
+    SpatialPoint(double x, size_t iShift,
+                 double *& inputs, double *& outputs,
+                 const SpatialPoint* nbrL, const SpatialPoint* nbrR)
+    : x(x), iShift_(iShift), inputs_(inputs), outputs_(outputs),
+      nbr_{nbrL, nbrR} 
+    {
     }
 
     const SpatialPoint& nbr(size_t i) {
         assert(i < 2);
         assert(nbr_[i] != 0);
-        return *nbr_[i];
+        return *(nbr_[i]);
     }
 
     double inputs(size_t i) const {
         assert(i < numInput);
-        return inputs_[i];
+        return inputs_[iShift_ + i];
     }
 
     double & outputs(size_t i) {
         assert(i < numOutput);
-        return outputs_[i];
+        return outputs_[iShift_ + i];
     }
 };
 
@@ -160,28 +161,20 @@ const char* mpiRankString()
 class ClassicSyncer1D {
     // Only used for syncing initial data
     private:
-    double *data_;
-    size_t numGrids_, numVar_;
     MPI_Request reqs_[4];
 
-    double * pGrid_(int iGrid) {
-        return data_ + iGrid * numVar_;
-    }
-
     public:
-    ClassicSyncer1D(double * data, int numGrids, int numVar)
-    : data_(data), numGrids_(numGrids), numVar_(numVar)
+    ClassicSyncer1D(double * pLeft, double * pRight,
+                    double * pLeftGhost, double * pRightGhost, int numVar)
     {
-        const int iGridLeft = 1, iGridRight = numGrids_;
-        MPI_Isend(pGrid_(iGridLeft), numVar, MPI_DOUBLE,
+        MPI_Isend(pLeft, numVar, MPI_DOUBLE,
                   iProcLeft(), 0, MPI_COMM_WORLD, reqs_);
-        MPI_Isend(pGrid_(iGridRight), numVar, MPI_DOUBLE,
+        MPI_Isend(pRight, numVar, MPI_DOUBLE,
                   iProcRight(), 1, MPI_COMM_WORLD, reqs_ + 1);
 
-        const int iGridLeftGhost = 0, iGridRightGhost = numGrids_ + 1;
-        MPI_Irecv(pGrid_(iGridRightGhost), numVar, MPI_DOUBLE,
+        MPI_Irecv(pRightGhost, numVar, MPI_DOUBLE,
                   iProcRight(), 0, MPI_COMM_WORLD, reqs_ + 2);
-        MPI_Irecv(pGrid_(iGridLeftGhost), numVar, MPI_DOUBLE,
+        MPI_Irecv(pLeftGhost, numVar, MPI_DOUBLE,
                   iProcLeft(), 1, MPI_COMM_WORLD, reqs_ + 3);
     }
 

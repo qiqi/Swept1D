@@ -39,13 +39,17 @@ class ClassicDiscretization1D {
         if (variablesData_) {
             delete variablesData_;
         }
+        for (size_t i = 0; i < numGrids_ + 2; ++i) {
+            spatialPoints_[i].~SpatialPoint();
+        }
+        free(spatialPoints_);
         MPI_Finalize();
     }
 
     public:
     template<size_t numVar>
     ClassicDiscretization1D(int numGrids, double dx,
-         void (&localOperator)(SpatialPoint<0, numVar>&))
+         void (*localOperator)(SpatialPoint<0, numVar>&))
     :
         numGrids_(numGrids), dx_(dx),
         numVariables_(numVar), numLastOutput_(numVar),
@@ -77,7 +81,7 @@ class ClassicDiscretization1D {
 
     private:
 
-    void resizeWorkspace(size_t newNumVariables) {
+    void resizeWorkspace_(size_t newNumVariables) {
         double * newVariablesData
             = new double[2 * newNumVariables * (numGrids_ + 2)];
         double * newInputs = newVariablesData;
@@ -115,12 +119,12 @@ class ClassicDiscretization1D {
 
     public:
     template<size_t numInput, size_t numOutput>
-    void applyOp(void (&localOperator)(SpatialPoint<numInput,numOutput>& point))
+    void applyOp(void (*localOperator)(SpatialPoint<numInput,numOutput>& point))
     {
         assert(numInput == numLastOutput_);
         numLastOutput_ = numOutput;
         if (numOutput > numVariables_) {
-            resizeWorkspace(numOutput);
+            resizeWorkspace_(numOutput);
         }
 
         double * tmp = inputs_;

@@ -32,11 +32,7 @@ class LocalOperatorBase {
     // LocalInputs1D<numInput> and LocalOutputs1D<numOutput>
     // instances.
     public:
-    virtual void applyToArray(size_t nGrid, const double* pInputsBegin,
-            double* pOutputsBegin, double x0, double dx) const = 0;
-    virtual void applyToIterator(
-            std::vector<SpatialPoint<0,0>>::iterator pBegin,
-            std::vector<SpatialPoint<0,0>>::iterator pEnd) const = 0;
+    virtual void applyToArray(void * pointsBegin, void * pointsEnd) const = 0;
     virtual size_t numInputs() const = 0;
     virtual size_t numOutputs() const = 0;
     virtual ~LocalOperatorBase() {}
@@ -48,47 +44,20 @@ class LocalOperator : public LocalOperatorBase {
     virtual size_t numInputs() const { return numInput; }
     virtual size_t numOutputs() const { return numOutput; }
     private:
-    void (&operator_)(SpatialPoint<numInput,numOutput>& point);
+    void (* const operator_)(SpatialPoint<numInput,numOutput>& point);
 
     public:
-    LocalOperator(void (&localOperator)(SpatialPoint<numInput,numOutput>& point))
+    LocalOperator(void (*localOperator)(SpatialPoint<numInput,numOutput>& point))
     : operator_(localOperator) {}
 
     virtual ~LocalOperator() {}
 
-    // virtual void apply(const double* pInputs, const double* pInputsL,
-    //                    const double* pInputsR, double* pOutputs,
-    //                    const LocalMesh& mesh) const
-    // {
-    //     LocalInputs1D<numInput> inputs(pInputs, pInputsL, pInputsR);
-    //     LocalOutputs1D<numOutput> outputs(pOutputs);
-    //     operator_(inputs, outputs, mesh);
-    // }
-
-    virtual void applyToArray(size_t nGrid, const double* pInputsBegin,
-                              double* pOutputsBegin, double x0, double dx) const
+    virtual void applyToArray(void * pBegin, void * pEnd) const
     {
-        double (*pOutput)[numOutput] = (double (*)[numOutput])pOutputsBegin;
-        const double (*pInput)[numInput] = (const double (*)[numInput])pInputsBegin;
-
-        for (size_t iGrid = 0; iGrid < nGrid; ++iGrid) {
-            double x = x0 + iGrid * dx;
-            SpatialPoint<numInput, numOutput> p(x, pInput[iGrid], pOutput[iGrid]);
-            SpatialPoint<numInput, numOutput> pL(x - dx, pInput[iGrid-1], 0);
-            SpatialPoint<numInput, numOutput> pR(x + dx, pInput[iGrid+1], 0);
-            p.addNeighbors(&pL, &pR);
-
-            operator_(p);
-        }
-    }
-
-    virtual void applyToIterator(
-            std::vector<SpatialPoint<0,0>>::iterator pBegin,
-            std::vector<SpatialPoint<0,0>>::iterator pEnd) const
-    {
-        for (auto it = pBegin; it < pEnd; ++it) {
-            auto p = (SpatialPoint<numInput, numOutput>&) (*it);
-            operator_(p);
+        SpatialPoint<numInput, numOutput>
+            * pointBegin = pBegin, * pointEnd = pEnd;
+        for (auto point = pointBegin; point < pointEnd; ++point) {
+            operator_(*point);
         }
     }
 };
@@ -152,7 +121,110 @@ class LocalVariablesQueue {
     }
 };
 
-class DiamondTop {
+class DiamondHalf {
+    protected:
+    size_t numPoints_;
+    SpatialPoint<0,0> * spatialPoints_;
+
+    size_t numVariables_;
+    double * variablesData_, * inputs_, * outputs_;
+
+    double * pInput_(size_t iPoint) {
+        assert(iPoint <= numPoints_ - 1);
+        return inputs_ + iPoint * 2 * numVariables_;
+    }
+    double * pOutput_(size_t iPoint) {
+        assert(iPoint <= numPoints_ - 1);
+        return outputs_ + iPoint * 2 * numVariables_;
+    }
+
+    void resizeWorkspace_(size_t newNumVariables)
+    {
+        assert (newNumVariables > numVariables_);
+        double * newVariablesData
+            = new double[2 * newNumVariables * numPoints_];
+        double * newInputs = newVariablesData;
+        double * newOutputs = newVariablesData + newNumVariables;
+
+        if (numVariables_) {
+            for (size_t i = 0; i < numPoints_; ++ i) {
+                void * dest = newInputs + i * 2 * newNumVariables;
+                void * src = inputs_ + i * 2 * numVariables_;
+                memcpy(dest, src, sizeof(double) * numVariables_);
+
+                dest = newOutputs + i * 2 * newNumVariables;
+                src = outputs_ + i * 2 * numVariables_;
+                memcpy(dest, src, sizeof(double) * numVariables_);
+            }
+            delete[] variablesData_;
+        }
+
+        numVariables_ = newNumVariables;
+        variablesData_ = newVariablesData;
+        inputs_ = newInputs;
+        outputs_ = newOutputs;
+
+        for (size_t i = 0; i < numPoints_; ++i) {
+            auto p = spatialPoints_ + i;
+            auto pL = (i == 0) ? 0 : p - 1;
+            auto pR = (i == numPoints_ - 1) ? 0 : p + 1;
+            size_t iShift = i * numVariables_ * 2;
+            double x = p->x;
+            p->~SpatialPoint();
+            new(p) SpatialPoint<0,0>(x, iShift, inputs_, outputs_, pL, pR);
+        }
+    }
+
+    template<typename LocalOpIter>
+    void ensureSufficientMemory_(LocalOpIter opBegin, LocalOpIter opEnd)
+    {
+        size_t maxNumVar = 0;
+        std::for_each(opBegin, opEnd, [&] (const LocalOperatorBase * op) {
+            if (op == 0) return;
+            if (op->numInputs() > maxNumVar) maxNumVar = op->numInputs();
+            if (op->numOutputs() > maxNumVar) maxNumVar = op->numOutputs();
+        });
+
+        if (maxNumVar > numVariables_) {
+            resizeWorkspace_(maxNumVar);
+        }
+    }
+
+    void swapInputOutput_() {
+        double * tmp = inputs_;
+        inputs_ = outputs_;
+        outputs_ = tmp;
+    }
+
+    public:
+
+    DiamondHalf(size_t numPoints, double x0, double dx)
+    :
+        numPoints_(numPoints), numVariables_(0)
+    {
+        spatialPoints_ = (SpatialPoint<0,0>*)
+            malloc(numPoints_ * sizeof(SpatialPoint<0,0>));
+        for (size_t i = 0; i < numPoints_; ++i) {
+            auto p = spatialPoints_ + i;
+            new(p) SpatialPoint<0,0>(
+                    x0 + i * dx, 0, inputs_, outputs_, nullptr, nullptr);
+        }
+    }
+
+    virtual ~DiamondHalf() {
+        for (size_t i = 0; i < numPoints_; ++i) {
+            auto p = spatialPoints_ + i;
+            p->~SpatialPoint<0,0>();
+        }
+        free(spatialPoints_);
+
+        if (numVariables_) {
+            delete[] variablesData_;
+        }
+    }
+};
+
+class DiamondTop : public DiamondHalf {
     // TODO
     // An instance of this class computes one space-time diamond
     // When constructing the instance, one feeds in a series of LocalMesh
@@ -164,108 +236,104 @@ class DiamondTop {
     // upon its construction. Afterwards, call "getRoof" function to obtain
     // the outputs.
     private:
-    double x0_, dx_;
-    std::vector<const LocalOperatorBase*> localOperators_;
-
-    size_t numVariables_;
-    double * variablesData_;
-
-    double * varAtGrid_(size_t iGrid) {
-        return variablesData_ + iGrid * numVariables_;
-    }
-
-    LocalVariablesQueue leftRoof_, rightRoof_;
-
-    void enqueueTwoGrids_(LocalVariablesQueue& q, double * pData)
-    {
-        q.enqueue(numVariables_, pData);
-        q.enqueue(numVariables_, pData + numVariables_);
-    }
-
-    size_t roofBytes_()
-    {
-        size_t queueBytes = 0;
-        std::for_each(localOperators_.begin(), localOperators_.end(),
-                      [&] (const LocalOperatorBase * op) {
-            if (op == 0) return;
-            size_t localVarBytes = sizeof(size_t)
-                + sizeof(double) * op->numInputs();
-            if (op == localOperators_.back()) {
-                localVarBytes += sizeof(size_t)
-                    + sizeof(double) * op->numOutputs();
-            }
-            queueBytes += localVarBytes * 2;
-        });
-        return queueBytes;
-    }
-
-    void compute_() {
-        size_t nStep = localOperators_.size();
-        size_t nGrid = 2 * (nStep + 1);
-
-        for (size_t iStep = 0; iStep < nStep; ++ iStep)
-        {
-            auto op = localOperators_[iStep];
-            if (op == 0) continue;
-
-            enqueueTwoGrids_(leftRoof_, varAtGrid_(0));
-            enqueueTwoGrids_(rightRoof_, varAtGrid_(nGrid - 2));
-
-            size_t numInput = op->numInputs();
-            size_t numOutput = op->numOutputs();
-            assert(numVariables_ == numInput);
-
-            nGrid -= 2;
-            const double * pInput = variablesData_;
-            double * pOutput = new double[numOutput * nGrid];
-
-            double x0 = x0_ + (iStep + 1) * dx_;
-            op->applyToArray(nGrid, pInput + numInput, pOutput, x0, dx_);
-
-            delete[] variablesData_;
-            variablesData_ = pOutput;
-            numVariables_ = numOutput;
-        }
-
-        if (localOperators_.back()) {
-            enqueueTwoGrids_(leftRoof_, varAtGrid_(0));
-            enqueueTwoGrids_(rightRoof_, varAtGrid_(nGrid - 2));
-            assert(nGrid == 2);
-        }
-    }
+    int iProcLeftRoofGoesTo_, tagLeftRoofGoesTo_;
+    int iProcRightRoofGoesTo_, tagRightRoofGoesTo_;
 
     public:
-    DiamondTop(std::vector<const LocalOperatorBase*>::const_iterator opBegin,
-               std::vector<const LocalOperatorBase*>::const_iterator opEnd,
-               double x0, double dx, const double * data,
+    DiamondTop(size_t numPoints, double x0, double dx,
                int iProcLeftRoofGoesTo, int tagLeftRoofGoesTo,
                int iProcRightRoofGoesTo, int tagRightRoofGoesTo)
     :
-        x0_(x0), dx_(dx), localOperators_(opBegin, opEnd),
-        leftRoof_(roofBytes_()),
-        rightRoof_(roofBytes_())
+        DiamondHalf(numPoints, x0, dx),
+        iProcLeftRoofGoesTo_(iProcLeftRoofGoesTo),
+        tagLeftRoofGoesTo_(tagLeftRoofGoesTo),
+        iProcRightRoofGoesTo_(iProcRightRoofGoesTo),
+        tagRightRoofGoesTo_(tagRightRoofGoesTo)
+    { }
+
+    private:
+    template<typename LocalOpIter>
+    size_t roofBytes_(LocalOpIter opBegin, LocalOpIter opEnd)
     {
-        size_t nStep = localOperators_.size();
-        size_t nGrid = 2 * (nStep + 1);
-        numVariables_ = (*opBegin)->numInputs();
-        size_t nDouble = numVariables_ * nGrid;
-
-        variablesData_ = new double[nDouble];
-        memcpy(variablesData_, data, sizeof(double) * nDouble);
-        compute_();
-
-        leftRoof_.Isend(iProcLeftRoofGoesTo, tagLeftRoofGoesTo);
-        rightRoof_.Isend(iProcRightRoofGoesTo, tagRightRoofGoesTo);
-        delete[] variablesData_;
+        size_t queueBytes = 0;
+        std::for_each(opBegin, opEnd, [&] (const LocalOperatorBase * op) {
+            if (op == 0) return;
+            size_t localVarBytes = sizeof(size_t)
+                + sizeof(double) * op->numInputs();
+            queueBytes += localVarBytes * 2;
+        });
+        const LocalOperatorBase * op = *(opEnd - 1);
+        if (op) {
+            size_t localVarBytes = sizeof(size_t)
+                + sizeof(double) * op->numOutputs();
+            queueBytes += localVarBytes * 2;
+        }
+        return queueBytes;
     }
 
-    virtual ~DiamondTop() {
-        leftRoof_.waitForSendOrRecv();
-        rightRoof_.waitForSendOrRecv();
+    void copyInitialData_(const double* pInitialData,
+                          size_t dataSpacing, size_t numVar) {
+        assert(numVar <= dataSpacing);
+        assert(numVar <= numVariables_);
+        for (size_t i = 0; i < numPoints_; ++i) {
+            const double * src = pInitialData + i * dataSpacing;
+            memcpy(pOutput_(i), src, sizeof(double) * numVar);
+        }
+    }
+
+    public:
+    template<typename LocalOpIter>
+    void computeOps(LocalOpIter opBegin, LocalOpIter opEnd,
+                    const double* pInitialData, size_t dataSpacing)
+    {
+        ensureSufficientMemory_(opBegin, opEnd);
+        size_t roofBytes = roofBytes_(opBegin, opEnd);
+        LocalVariablesQueue leftRoof(roofBytes), rightRoof(roofBytes);
+
+        const LocalOperatorBase* opFirst = *opBegin;
+        size_t numPrevOutput = opFirst->numInputs();
+        copyInitialData_(pInitialData, dataSpacing, numPrevOutput);
+
+        assert(numPoints_ == 2 * (opEnd - opBegin + 1));
+        size_t iActivePointBegin = 0, iActivePointEnd = numPoints_;
+
+        std::for_each(opBegin, opEnd, [&](const LocalOperatorBase* op)
+        {
+            if (op == 0) return;
+            size_t numInput = op->numInputs();
+            size_t numOutput = op->numOutputs();
+            assert(numInput == numPrevOutput);
+
+            leftRoof.enqueue(numInput, pInput_(iActivePointBegin));
+            leftRoof.enqueue(numInput, pInput_(iActivePointBegin + 1));
+            rightRoof.enqueue(numInput, pInput_(iActivePointEnd - 2));
+            rightRoof.enqueue(numInput, pInput_(iActivePointEnd - 1));
+
+            ++iActivePointBegin;
+            --iActivePointEnd;
+
+            swapInputOutput_();
+
+            op->applyToArray(spatialPoints_ + iActivePointBegin,
+                             spatialPoints_ + iActivePointEnd);
+            numPrevOutput = numOutput;
+        });
+
+        const LocalOperatorBase * op = *(opEnd - 1);
+        if (op) {
+            assert(iActivePointEnd - iActivePointBegin == 2);
+            leftRoof.enqueue(numPrevOutput, pInput_(iActivePointBegin));
+            leftRoof.enqueue(numPrevOutput, pInput_(iActivePointBegin + 1));
+            rightRoof.enqueue(numPrevOutput, pInput_(iActivePointEnd - 2));
+            rightRoof.enqueue(numPrevOutput, pInput_(iActivePointEnd - 1));
+        }
+
+        leftRoof.Isend(iProcLeftRoofGoesTo_, tagLeftRoofGoesTo_);
+        rightRoof.Isend(iProcRightRoofGoesTo_, tagRightRoofGoesTo_);
     }
 };
 
-class DiamondBottom {
+class DiamondBottom : public DiamondHalf {
     // TODO
     // An instance of this class computes one space-time diamond
     // When constructing the instance, one feeds in a series of LocalMesh
@@ -277,31 +345,27 @@ class DiamondBottom {
     // upon its construction. Afterwards, call "getRoof" function to obtain
     // the outputs.
     private:
-    double x0_, dx_;
-    std::vector<const LocalOperatorBase*> localOperators_;
+    int iProcLeftFoundationIsFrom_, tagLeftFoundationIsFrom_;
+    int iProcRightFoundationIsFrom_, tagRightFoundationIsFrom_;
 
-    size_t numVariables_;
-    double * variablesData_;
+    public:
+    DiamondBottom(size_t numPoints, double x0, double dx,
+                  int iProcLeftFoundationIsFrom, int tagLeftFoundationIsFrom,
+                  int iProcRightFoundationIsFrom, int tagRightFoundationIsFrom)
+    :   // two more points than corresponding DiamondTop
+        DiamondHalf(numPoints + 2, x0, dx),
+        iProcLeftFoundationIsFrom_(iProcLeftFoundationIsFrom),
+        tagLeftFoundationIsFrom_(tagLeftFoundationIsFrom),
+        iProcRightFoundationIsFrom_(iProcRightFoundationIsFrom),
+        tagRightFoundationIsFrom_(tagRightFoundationIsFrom)
+    { } 
 
-    double * varAtGrid_(size_t iGrid) {
-        return variablesData_ + iGrid * numVariables_;
-    }
-
-    LocalVariablesQueue leftFoundation_, rightFoundation_;
-
-    void dequeueTwoGrids_(LocalVariablesQueue& q, double * pData)
-    {
-        size_t numVar = q.dequeue(pData);
-        assert(numVariables_ == numVar);
-        numVar = q.dequeue(pData + numVariables_);
-        assert(numVariables_ == numVar);
-    }
-
-    size_t foundationBytes_()
+    private:
+    template<typename LocalOpIter>
+    size_t foundationBytes_(LocalOpIter opBegin, LocalOpIter opEnd)
     {
         size_t queueBytes = 0;
-        std::for_each(localOperators_.begin(), localOperators_.end(),
-                      [&] (const LocalOperatorBase * op) {
+        std::for_each(opBegin, opEnd, [&] (const LocalOperatorBase * op) {
             if (op == 0) return;
             size_t localVarBytes = sizeof(size_t)
                 + sizeof(double) * op->numInputs();
@@ -310,85 +374,75 @@ class DiamondBottom {
         return queueBytes;
     }
 
-    void compute_() {
-        size_t nStep = localOperators_.size();
-        size_t nGrid = 4;
-
-        for (size_t iStep = 0; iStep < nStep; ++ iStep)
-        {
-            auto op = localOperators_[iStep];
-            if (op == 0) continue;
-
-            dequeueTwoGrids_(leftFoundation_, varAtGrid_(0));
-            dequeueTwoGrids_(rightFoundation_, varAtGrid_(nGrid - 2));
-
-            size_t numInput = op->numInputs();
-            size_t numOutput = op->numOutputs();
-            assert(numVariables_ == numInput);
-
-            if (iStep < nStep - 1) {
-                nGrid += 2;
-            } else {
-                nGrid -= 2;
-            }
-            const double * pInput = variablesData_;
-            double * pOutput = new double[numOutput * nGrid];
-
-            double x0 = x0_ + (nStep - iStep - 1) * dx_;
-            if (iStep < nStep - 1) {
-                op->applyToArray(nGrid - 4, pInput, pOutput + numOutput * 2, x0, dx_);
-            } else {
-                op->applyToArray(nGrid - 4, pInput, pOutput, x0, dx_);
-            }
-
-            delete[] variablesData_;
-            variablesData_ = pOutput;
-            numVariables_ = numOutput;
-        }
-        assert(nGrid == nStep * 2 || localOperators_.back() == 0);
-    }
-
     public:
-    DiamondBottom(std::vector<const LocalOperatorBase*>::const_iterator opBegin,
-                  std::vector<const LocalOperatorBase*>::const_iterator opEnd,
-                  double x0, double dx,
-                  int iProcLeftFoundationIsFrom, int tagLeftFoundationIsFrom,
-                  int iProcRightFoundationIsFrom, int tagRightFoundationIsFrom)
-    :
-        x0_(x0), dx_(dx), localOperators_(opBegin, opEnd),
-        leftFoundation_(foundationBytes_()),
-        rightFoundation_(foundationBytes_())
+    template<typename LocalOpIter>
+    void computeOps(LocalOpIter opBegin, LocalOpIter opEnd)
     {
-        leftFoundation_.Irecv(iProcLeftFoundationIsFrom,
-                              tagLeftFoundationIsFrom);
-        rightFoundation_.Irecv(iProcRightFoundationIsFrom,
-                               tagRightFoundationIsFrom);
-        leftFoundation_.waitForSendOrRecv();
-        rightFoundation_.waitForSendOrRecv();
+        ensureSufficientMemory_(opBegin, opEnd);
+        size_t foundationBytes = foundationBytes_(opBegin, opEnd);
+        LocalVariablesQueue leftFoundation(foundationBytes),
+                            rightFoundation(foundationBytes);
 
-        numVariables_ = (*opBegin)->numInputs();
-        variablesData_ = new double[4 * numVariables_];
-        compute_();
+        leftFoundation.Irecv(iProcLeftFoundationIsFrom_,
+                             tagLeftFoundationIsFrom_);
+        rightFoundation.Irecv(iProcRightFoundationIsFrom_,
+                              tagRightFoundationIsFrom_);
+        leftFoundation.waitForSendOrRecv();
+        rightFoundation.waitForSendOrRecv();
+
+        const LocalOperatorBase* opFirst = *opBegin;
+        size_t numPrevOutput = opFirst->numInputs();
+
+        assert(numPoints_ == 2 * (opEnd - opBegin + 1));
+        size_t iActivePointBegin = numPoints_ / 2 - 1,
+               iActivePointEnd = numPoints_ / 2 + 1;
+
+        std::for_each(opBegin, opEnd, [&](const LocalOperatorBase* op)
+        {
+            if (op == 0) return;
+            assert(op->numInputs() == numPrevOutput);
+            size_t numOutput = op->numOutputs();
+
+            size_t numDequeue;
+            numDequeue = leftFoundation.dequeue(pInput_(iActivePointBegin - 1));
+            numDequeue = leftFoundation.dequeue(pInput_(iActivePointBegin));
+            numDequeue = rightFoundation.dequeue(pInput_(iActivePointEnd - 1));
+            numDequeue = rightFoundation.dequeue(pInput_(iActivePointEnd));
+
+            op->applyToArray(spatialPoints_ + iActivePointBegin,
+                             spatialPoints_ + iActivePointEnd);
+
+            --iActivePointBegin;
+            ++iActivePointEnd;
+
+            swapInputOutput_();
+            numPrevOutput = numOutput;
+        });
+        const LocalOperatorBase * op = *(opEnd - 1);
+        if (op) {
+            assert(iActivePointBegin == 0);
+            assert(iActivePointEnd == numPoints_);
+        }
     }
 
-    const double * top() {
-        return variablesData_;
+    const double * finalData() {
+        return inputs_;
     }
 
-    ~DiamondBottom() {
-        delete variablesData_;
+    size_t dataSpacing() {
+        return numVariables_ * 2;
     }
 };
 
-class SweptDiscretization1D {
-    private:
-    size_t nGrid_;
-    double x0_, dx_;
+const int tagLeftwards = 1, tagRightwards = 2, tagToSelf = 0;
 
+class SweptDiscretization1D : public DiscretizationBase {
+    private:
+    size_t numPoints_;
     std::vector<const LocalOperatorBase*> localOperators_;
 
-    DiamondTop * pDiamondTop_;
-    DiamondBottom * pDiamondBottom_;
+    DiamondTop diamondTopLeft_, diamondTopRight_;
+    DiamondBottom diamondBottomLeft_, diamondBottomRight_;
 
     size_t initialNumVar_;
     double * initialData_;
@@ -396,8 +450,10 @@ class SweptDiscretization1D {
     typedef enum {
         LEFT_DIAMOND,
         RIGHT_DIAMOND
-    } WorkingSide_;
-    WorkingSide_ isWorkingOn_;
+        LEFT_DIAMOND,
+        RIGHT_DIAMOND
+    } WorkingDiamond_;
+    WorkingDiamond_ isWorkingOn_;
 
     void clearLocalOperators_() {
         std::for_each(localOperators_.begin(), localOperators_.end(),
@@ -414,20 +470,26 @@ class SweptDiscretization1D {
     }
 
     template<size_t numVar>
-    SweptDiscretization1D(size_t numGrids, double dx,
+    SweptDiscretization1D(size_t numPoints, double dx,
          void (&localOperator)(SpatialPoint<0, numVar>&))
     :
-        nGrid_(numGrids), dx_(dx),
-        pDiamondTop_(0), pDiamondBottom_(0),
+        DiscretizationBase(),
+        numPoints_(numPoints),
+        diamondTopLeft_(numPoints, numPoints * iProc() * dx, dx,
+                        iProcLeft(), tagLeftwards, iProc(), tagToSelf),
+        diamondTopRight_(numPoints, (numPoints / 2 + numPoints * iProc()) * dx, dx,
+                         iProc(), tagToSelf, iProcRight(), tagRightwards),
+        diamondBottomLeft_(numPoints, numPoints * dx * iProc(), dx,
+                           iProcLeft(), tagRightwards, iProc(), tagToSelf),
+        diamondBottomRight_(numPoints, (numPoints / 2 + numPoints * iProc()) * dx, dx,
+                            iProc(), tagToSelf, iProcRight(), tagLeftwards),
         initialNumVar_(numVar),
         isWorkingOn_(LEFT_DIAMOND)
     {
-        MPI_Init(0, 0);
-        x0_ = numGrids * dx * iProc();
-
-        initialData_ = new double[numGrids * numVar];
-        for (size_t iGrid = 0; iGrid < numGrids; ++iGrid) {
-            SpatialPoint<0,numVar> p(x0_ + iGrid * dx, 0, initialData_ + iGrid * numVar);
+        initialData_ = new double[numPoints * numVar];
+        double x0 = numPoints * dx * iProc();
+        for (size_t iPoint = 0; iPoint < numPoints; ++iPoint) {
+            SpatialPoint<0,numVar> p(x0 + iPoint * dx, 0, initialData_ + iPoint * numVar);
             localOperator(p);
         }
     }

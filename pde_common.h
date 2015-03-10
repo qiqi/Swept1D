@@ -118,6 +118,16 @@ class Discretization {
 
 // ====== common utilities for pde_diamond and pde_classic ====== //
 
+class DiscretizationBase {
+    public:
+    DiscretizationBase() {
+        MPI_Init(0,0);
+    }
+    virtual ~DiscretizationBase() {
+        MPI_Finalize();
+    }
+};
+
 int iProc() {
     int iPr;
     MPI_Comm_rank(MPI_COMM_WORLD, &iPr);

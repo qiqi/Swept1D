@@ -55,7 +55,8 @@ class LocalOperator : public LocalOperatorBase {
     virtual void applyToArray(void * pBegin, void * pEnd) const
     {
         SpatialPoint<numInput, numOutput>
-            * pointBegin = pBegin, * pointEnd = pEnd;
+            * pointBegin = (SpatialPoint<numInput, numOutput>*) pBegin,
+            * pointEnd = (SpatialPoint<numInput, numOutput>*) pEnd;
         for (auto point = pointBegin; point < pointEnd; ++point) {
             operator_(*point);
         }
@@ -68,42 +69,50 @@ class LocalVariablesQueue {
     char* pData_;
     size_t enqueueByte_, dequeueByte_;
     MPI_Request req_;
-    int hasSendOrRecvBeenCalled_;
+    bool hasSendOrRecvBeenCalled_, hasSendOrRecvFinished_;
 
     public:
     LocalVariablesQueue(size_t maxBytes)
     : maxBytes_(maxBytes), enqueueByte_(0), dequeueByte_(0),
-      hasSendOrRecvBeenCalled_(0)
+      hasSendOrRecvBeenCalled_(false), hasSendOrRecvFinished_(false)
     {
         pData_ = (char*)malloc(maxBytes);
     }
 
     virtual ~LocalVariablesQueue() {
+        if (!hasSendOrRecvFinished_) {
+            waitForSendOrRecv();
+        }
         free(pData_);
     }
 
     void Irecv(int iProc, int tag) {
         assert(!hasSendOrRecvBeenCalled_);
-        hasSendOrRecvBeenCalled_ = 1;
+        hasSendOrRecvBeenCalled_ = true;
         MPI_Irecv(pData_, maxBytes_, MPI_BYTE, iProc, tag, MPI_COMM_WORLD, &req_);
         // std::cout << "Irecv()..." << req_ << " iProc:" << iProc << ",Tag:" << tag << std::endl;
     }
 
     void Isend(int iProc, int tag) {
         assert(!hasSendOrRecvBeenCalled_);
-        hasSendOrRecvBeenCalled_ = 1;
+        hasSendOrRecvBeenCalled_ = true;
         MPI_Isend(pData_, maxBytes_, MPI_BYTE, iProc, tag, MPI_COMM_WORLD, &req_);
         // std::cout << "Isend()..." << req_ << " iProc:" << iProc << ",Tag:" << tag << std::endl;
     }
 
     void waitForSendOrRecv() {
         assert(hasSendOrRecvBeenCalled_);
+        assert(!hasSendOrRecvFinished_);
         // std::cout << "waitForSendOrRecv()..." << req_ << std::endl;
         MPI_Wait(&req_, MPI_STATUS_IGNORE);
         // std::cout << "waitForSendOrRecv() done." << std::endl;
+        hasSendOrRecvFinished_ = true;
     }
 
-    void enqueue(size_t numVar, const double* pData) {
+    void enqueue(size_t numVar, const double* pData)
+    {
+        assert(!hasSendOrRecvBeenCalled_);
+
         *(size_t*)(pData_ + enqueueByte_) = numVar;
         memcpy(pData_ + enqueueByte_ + sizeof(size_t), pData,
                sizeof(double) * numVar);
@@ -111,7 +120,9 @@ class LocalVariablesQueue {
         assert(enqueueByte_ <= maxBytes_);
     }
 
-    size_t dequeue(double* pData) {
+    size_t dequeue(double* pData)
+    {
+        assert(hasSendOrRecvFinished_);
         size_t numVar = *(size_t*)(pData_ + dequeueByte_);
         memcpy(pData, pData_ + dequeueByte_ + sizeof(size_t),
                sizeof(double) * numVar);
@@ -239,6 +250,8 @@ class DiamondTop : public DiamondHalf {
     int iProcLeftRoofGoesTo_, tagLeftRoofGoesTo_;
     int iProcRightRoofGoesTo_, tagRightRoofGoesTo_;
 
+    LocalVariablesQueue * pLeftRoof, * pRightRoof;
+
     public:
     DiamondTop(size_t numPoints, double x0, double dx,
                int iProcLeftRoofGoesTo, int tagLeftRoofGoesTo,
@@ -248,7 +261,8 @@ class DiamondTop : public DiamondHalf {
         iProcLeftRoofGoesTo_(iProcLeftRoofGoesTo),
         tagLeftRoofGoesTo_(tagLeftRoofGoesTo),
         iProcRightRoofGoesTo_(iProcRightRoofGoesTo),
-        tagRightRoofGoesTo_(tagRightRoofGoesTo)
+        tagRightRoofGoesTo_(tagRightRoofGoesTo),
+        pLeftRoof(nullptr), pRightRoof(nullptr)
     { }
 
     private:
@@ -286,9 +300,13 @@ class DiamondTop : public DiamondHalf {
     void computeOps(LocalOpIter opBegin, LocalOpIter opEnd,
                     const double* pInitialData, size_t dataSpacing)
     {
+        if (pLeftRoof) delete pLeftRoof;
+        if (pRightRoof) delete pRightRoof;
+
         ensureSufficientMemory_(opBegin, opEnd);
         size_t roofBytes = roofBytes_(opBegin, opEnd);
-        LocalVariablesQueue leftRoof(roofBytes), rightRoof(roofBytes);
+        pLeftRoof = new LocalVariablesQueue(roofBytes);
+        pRightRoof = new LocalVariablesQueue(roofBytes);
 
         const LocalOperatorBase* opFirst = *opBegin;
         size_t numPrevOutput = opFirst->numInputs();
@@ -304,10 +322,10 @@ class DiamondTop : public DiamondHalf {
             size_t numOutput = op->numOutputs();
             assert(numInput == numPrevOutput);
 
-            leftRoof.enqueue(numInput, pInput_(iActivePointBegin));
-            leftRoof.enqueue(numInput, pInput_(iActivePointBegin + 1));
-            rightRoof.enqueue(numInput, pInput_(iActivePointEnd - 2));
-            rightRoof.enqueue(numInput, pInput_(iActivePointEnd - 1));
+            pLeftRoof->enqueue(numInput, pInput_(iActivePointBegin));
+            pLeftRoof->enqueue(numInput, pInput_(iActivePointBegin + 1));
+            pRightRoof->enqueue(numInput, pInput_(iActivePointEnd - 2));
+            pRightRoof->enqueue(numInput, pInput_(iActivePointEnd - 1));
 
             ++iActivePointBegin;
             --iActivePointEnd;
@@ -322,14 +340,14 @@ class DiamondTop : public DiamondHalf {
         const LocalOperatorBase * op = *(opEnd - 1);
         if (op) {
             assert(iActivePointEnd - iActivePointBegin == 2);
-            leftRoof.enqueue(numPrevOutput, pInput_(iActivePointBegin));
-            leftRoof.enqueue(numPrevOutput, pInput_(iActivePointBegin + 1));
-            rightRoof.enqueue(numPrevOutput, pInput_(iActivePointEnd - 2));
-            rightRoof.enqueue(numPrevOutput, pInput_(iActivePointEnd - 1));
+            pLeftRoof->enqueue(numPrevOutput, pInput_(iActivePointBegin));
+            pLeftRoof->enqueue(numPrevOutput, pInput_(iActivePointBegin + 1));
+            pRightRoof->enqueue(numPrevOutput, pInput_(iActivePointEnd - 2));
+            pRightRoof->enqueue(numPrevOutput, pInput_(iActivePointEnd - 1));
         }
 
-        leftRoof.Isend(iProcLeftRoofGoesTo_, tagLeftRoofGoesTo_);
-        rightRoof.Isend(iProcRightRoofGoesTo_, tagRightRoofGoesTo_);
+        pLeftRoof->Isend(iProcLeftRoofGoesTo_, tagLeftRoofGoesTo_);
+        pRightRoof->Isend(iProcRightRoofGoesTo_, tagRightRoofGoesTo_);
     }
 };
 
@@ -400,14 +418,18 @@ class DiamondBottom : public DiamondHalf {
         std::for_each(opBegin, opEnd, [&](const LocalOperatorBase* op)
         {
             if (op == 0) return;
-            assert(op->numInputs() == numPrevOutput);
             size_t numOutput = op->numOutputs();
+            assert(op->numInputs() == numPrevOutput);
 
             size_t numDequeue;
             numDequeue = leftFoundation.dequeue(pInput_(iActivePointBegin - 1));
+            assert(numDequeue == op->numInputs());
             numDequeue = leftFoundation.dequeue(pInput_(iActivePointBegin));
+            assert(numDequeue == op->numInputs());
             numDequeue = rightFoundation.dequeue(pInput_(iActivePointEnd - 1));
+            assert(numDequeue == op->numInputs());
             numDequeue = rightFoundation.dequeue(pInput_(iActivePointEnd));
+            assert(numDequeue == op->numInputs());
 
             op->applyToArray(spatialPoints_ + iActivePointBegin,
                              spatialPoints_ + iActivePointEnd);
@@ -434,10 +456,14 @@ class DiamondBottom : public DiamondHalf {
     }
 };
 
-const int tagLeftwards = 1, tagRightwards = 2, tagToSelf = 0;
-
 class SweptDiscretization1D : public DiscretizationBase {
     private:
+    enum {
+        TAG_Leftwards = 101,
+        TAG_Rightwards = 102,
+        TAG_ToSelf = 100
+    };
+
     size_t numPoints_;
     std::vector<const LocalOperatorBase*> localOperators_;
 
@@ -448,25 +474,18 @@ class SweptDiscretization1D : public DiscretizationBase {
     double * initialData_;
 
     typedef enum {
-        LEFT_DIAMOND,
-        RIGHT_DIAMOND
-        LEFT_DIAMOND,
-        RIGHT_DIAMOND
+        LEFT_DIAMOND_TOP,
+        RIGHT_DIAMOND_TOP,
+        LEFT_DIAMOND_BOTTOM,
+        RIGHT_DIAMOND_BOTTOM
     } WorkingDiamond_;
     WorkingDiamond_ isWorkingOn_;
-
-    void clearLocalOperators_() {
-        std::for_each(localOperators_.begin(), localOperators_.end(),
-                    [] (const LocalOperatorBase * op) { if (op) delete op; });
-        localOperators_.clear();
-    }
 
     public:
     ~SweptDiscretization1D() {
         while (localOperators_.size() > 0) {
             applyOpPointer_(0);
         }
-        MPI_Finalize();
     }
 
     template<size_t numVar>
@@ -476,92 +495,107 @@ class SweptDiscretization1D : public DiscretizationBase {
         DiscretizationBase(),
         numPoints_(numPoints),
         diamondTopLeft_(numPoints, numPoints * iProc() * dx, dx,
-                        iProcLeft(), tagLeftwards, iProc(), tagToSelf),
+                        iProcLeft(), TAG_Leftwards, iProc(), TAG_ToSelf),
         diamondTopRight_(numPoints, (numPoints / 2 + numPoints * iProc()) * dx, dx,
-                         iProc(), tagToSelf, iProcRight(), tagRightwards),
+                         iProc(), TAG_ToSelf, iProcRight(), TAG_Rightwards),
         diamondBottomLeft_(numPoints, numPoints * dx * iProc(), dx,
-                           iProcLeft(), tagRightwards, iProc(), tagToSelf),
+                           iProcLeft(), TAG_Rightwards, iProc(), TAG_ToSelf),
         diamondBottomRight_(numPoints, (numPoints / 2 + numPoints * iProc()) * dx, dx,
-                            iProc(), tagToSelf, iProcRight(), tagLeftwards),
+                            iProc(), TAG_ToSelf, iProcRight(), TAG_Leftwards),
         initialNumVar_(numVar),
-        isWorkingOn_(LEFT_DIAMOND)
+        isWorkingOn_(LEFT_DIAMOND_TOP)
     {
         initialData_ = new double[numPoints * numVar];
         double x0 = numPoints * dx * iProc();
         for (size_t iPoint = 0; iPoint < numPoints; ++iPoint) {
-            SpatialPoint<0,numVar> p(x0 + iPoint * dx, 0, initialData_ + iPoint * numVar);
+            double x = x0 + iPoint * dx;
+            size_t iShift = iPoint * numVar;
+            SpatialPoint<0,numVar> p(x, iShift, initialData_, initialData_,
+                                     nullptr, nullptr);
             localOperator(p);
         }
     }
 
     private:
-    DiamondTop * computeDiamondTop_() {
-        // std::cout << iProc() << ": computing top\n";
-        const double * pData;
-        if (initialData_) {
-            assert(pDiamondBottom_ == 0);
-            pData = initialData_;
-            assert(initialNumVar_ == localOperators_[0]->numInputs());
-        } else {
-            assert(initialData_ == 0);
-            pData = pDiamondBottom_->top();
-        }
+    void computeFirstDiamondTop_() {
+        assert(isWorkingOn_ == LEFT_DIAMOND_TOP);
+        assert(initialData_);
+        assert(initialNumVar_ == localOperators_[0]->numInputs());
 
-        const int tagLeftwards = 1, tagRightwards = 2, tagToSelf = 0;
-        DiamondTop * top;
-        if (isWorkingOn_ == LEFT_DIAMOND) {
-            top = new DiamondTop(
-                    localOperators_.begin(), localOperators_.end(),
-                    x0_, dx_, pData,
-                    iProcLeft(), tagLeftwards, iProc(), tagToSelf);
-            isWorkingOn_ = RIGHT_DIAMOND;
-        } else {
-            top = new DiamondTop(
-                    localOperators_.begin(), localOperators_.end(),
-                    x0_, dx_, pData,
-                    iProc(), tagToSelf, iProcRight(), tagRightwards);
-            isWorkingOn_ = LEFT_DIAMOND;
-        }
+        DiamondTop & top = diamondTopLeft_;
 
-        if (initialData_) {
-            delete[] initialData_;
-            initialData_ = 0;
-        }
-        return top;
+        top.computeOps(localOperators_.begin(), localOperators_.end(),
+                       initialData_, initialNumVar_);
+
+        delete[] initialData_;
+        initialData_ = 0;
     }
 
-    DiamondBottom * computeDiamondBottom_() {
+    void computeDiamondTop_() {
+        // std::cout << iProc() << ": computing top\n";
+        assert(isWorkingOn_ == LEFT_DIAMOND_TOP ||
+               isWorkingOn_ == RIGHT_DIAMOND_TOP);
+        assert(initialData_ == 0);
+
+        DiamondTop & top = (isWorkingOn_ == LEFT_DIAMOND_TOP) ?
+                            diamondTopLeft_ : diamondTopRight_;
+        DiamondBottom & bottom = (isWorkingOn_ == LEFT_DIAMOND_TOP) ?
+                            diamondBottomLeft_ : diamondBottomRight_;
+
+        top.computeOps(localOperators_.begin(), localOperators_.end(),
+                bottom.finalData(), bottom.dataSpacing());
+    }
+
+    void computeDiamondBottom_() {
         // std::cout << iProc() << ": computing bottom\n";
-        const int tagLeftwards = 1, tagRightwards = 2, tagToSelf = 0;
-        if (isWorkingOn_ == LEFT_DIAMOND) {
-            return new DiamondBottom(
-                    localOperators_.begin(), localOperators_.end(),
-                    x0_, dx_,
-                    iProcLeft(), tagRightwards, iProc(), tagToSelf);
-        } else {
-            return new DiamondBottom(
-                    localOperators_.begin(), localOperators_.end(),
-                    x0_, dx_,
-                    iProc(), tagToSelf, iProcRight(), tagLeftwards);
-        }
+        assert(isWorkingOn_ == LEFT_DIAMOND_BOTTOM ||
+               isWorkingOn_ == RIGHT_DIAMOND_BOTTOM);
+
+        DiamondBottom & bottom = (isWorkingOn_ == LEFT_DIAMOND_BOTTOM) ?
+                            diamondBottomLeft_ : diamondBottomRight_;
+        bottom.computeOps(localOperators_.begin(), localOperators_.end());
+    }
+
+    void clearLocalOperators_() {
+        std::for_each(localOperators_.begin(), localOperators_.end(),
+                    [] (const LocalOperatorBase * op) { if (op) delete op; });
+        localOperators_.clear();
     }
 
     void applyOpPointer_(LocalOperatorBase * p) {
         localOperators_.push_back(p);
-        if (pDiamondTop_) {  // compute diamond bottom next
-            if (localOperators_.size() == nGrid_ / 2) {
-                pDiamondBottom_ = computeDiamondBottom_();
-                delete pDiamondTop_;
-                pDiamondTop_ = 0;
-                clearLocalOperators_();
-            }
-        } else {
-            if (localOperators_.size() == nGrid_ / 2 - 1) {
-                pDiamondTop_ = computeDiamondTop_();
-                if (pDiamondBottom_) {
-                    delete pDiamondBottom_;
+        if (initialData_ && localOperators_.size() == numPoints_ / 2 - 1) {
+            computeFirstDiamondTop_();
+            isWorkingOn_ = RIGHT_DIAMOND_BOTTOM;
+            return;
+        }
+        switch (isWorkingOn_) {
+            case LEFT_DIAMOND_TOP:
+                if (localOperators_.size() == numPoints_ / 2 - 1) {
+                    computeDiamondTop_();
+                    isWorkingOn_ = RIGHT_DIAMOND_BOTTOM;
                 }
-            }
+                break;
+            case RIGHT_DIAMOND_TOP:
+                if (localOperators_.size() == numPoints_ / 2 - 1) {
+                    computeDiamondTop_();
+                    isWorkingOn_ = LEFT_DIAMOND_BOTTOM;
+                }
+                break;
+            case LEFT_DIAMOND_BOTTOM:
+                if (localOperators_.size() == numPoints_ / 2) {
+                    computeDiamondBottom_();
+                    isWorkingOn_ = LEFT_DIAMOND_TOP;
+                    clearLocalOperators_();
+                }
+                break;
+            case RIGHT_DIAMOND_BOTTOM:
+                if (localOperators_.size() == numPoints_ / 2) {
+                    computeDiamondBottom_();
+                    isWorkingOn_ = RIGHT_DIAMOND_TOP;
+                    clearLocalOperators_();
+                }
+                break;
         }
     }
 

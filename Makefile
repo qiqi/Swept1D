@@ -29,7 +29,6 @@ run_heat:	heat_classic heat_swept
 	mpirun ./heat_classic 2048
 	mpirun ./heat_classic 4096
 	mpirun ./heat_classic 8192
-	mpirun ./heat_classic 8192
 	mpirun ./heat_classic 16384
 	mpirun ./heat_classic 32769
 	mpirun ./heat_classic 65536
@@ -74,7 +73,6 @@ run_kuramoto:	kuramoto_classic kuramoto_swept
 	mpirun ./kuramoto_classic 2048
 	mpirun ./kuramoto_classic 4096
 	mpirun ./kuramoto_classic 8192
-	mpirun ./kuramoto_classic 8192
 	mpirun ./kuramoto_classic 16384
 	mpirun ./kuramoto_classic 32769
 	mpirun ./kuramoto_classic 65536
@@ -118,7 +116,6 @@ run_euler:	euler_classic euler_swept
 	mpirun ./euler_classic 1024
 	mpirun ./euler_classic 2048
 	mpirun ./euler_classic 4096
-	mpirun ./euler_classic 8192
 	mpirun ./euler_classic 8192
 	mpirun ./euler_classic 16384
 	mpirun ./euler_classic 32769

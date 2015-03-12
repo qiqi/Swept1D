@@ -1,7 +1,7 @@
 #include "pde_common.h"
 
 const double DT = 0.005;
-const int nStepsPerPixel = 1000, nPixel = 10000;
+const int nStepsPerPixel = 1000, nPixel = 1000;
 
 inline double pressure(double rho, double rhoU, double rhoE) {
     double kineticE = 0.5 * rhoU * rhoU / rho;

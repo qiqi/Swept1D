@@ -1,7 +1,7 @@
 #include "pde_common.h"
 
 const double DT = 0.00001, DX = 0.1;
-const int nStepsPerPixel = 1000, nPixel = 100;
+const int nStepsPerPixel = 1000, nPixel = 1000;
 
 inline void updateStep(SpatialPoint<1,1>& point)
 {

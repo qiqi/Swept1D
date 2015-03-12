@@ -1,7 +1,7 @@
 #include "pde_common.h"
 
 const double DT = 0.0025, DX = 0.5;
-const int nStepsPerPixel = 1000, nPixel = 100;
+const int nStepsPerPixel = 1000, nPixel = 1000;
 
 void uxxStep0(SpatialPoint<1,2>& point)
 {

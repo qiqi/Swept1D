@@ -6,5 +6,6 @@
 #SBATCH --nodes=8
 #SBATCH --ntasks-per-node=4
  
-make run_heat
-make run_kuramoto
+#make run_heat
+#make run_kuramoto
+make run_euler

@@ -29,9 +29,10 @@ class ClassicDiscretization1D {
     void commonInit_() {
         MPI_Init(0, 0);
 
-        int iProc;
+        int iProc, numProc;
         MPI_Comm_rank(MPI_COMM_WORLD, &iProc);
-        x0_ = numGrids_ * dx_ * iProc;
+        MPI_Comm_size(MPI_COMM_WORLD, &numProc);
+        x0_ = numGrids_ * (dx_ * iProc - 0.5 * dx_ * numProc);
     }
 
     public:
@@ -182,7 +183,7 @@ class ClassicDiscretization1D {
     {
         for (size_t iGrid = 0; iGrid < numGrids_; ++iGrid) {
             colorMap.assertIVarLessThan(numVariables_);
-            double* pGrid = outputs_ + 2 * iGrid * numVariables_;
+            double* pGrid = outputs_ + 2 * (iGrid + 1) * numVariables_;
             double r = colorMap.red.map(pGrid),
                    g = colorMap.green.map(pGrid),
                    b = colorMap.blue.map(pGrid);

@@ -12,6 +12,8 @@ int main(int argc, char*argv[])
     size_t numGridPerProc = atoi(argv[1]);
     ClassicDiscretization1D disc(numGridPerProc, 0.5, init);
     disc.colorMap.red.set(0, -2., 2.);
+    disc.colorMap.green.set(0, -2., 2.);
+    disc.colorMap.blue.set(0, -2., 2.);
 
     std::clock_t startTime = std::clock();
 
@@ -23,7 +25,7 @@ int main(int argc, char*argv[])
             disc.applyOp(updateStep1);
         }
         disc.variablesToColor(iPixel);
-        disc.writePng("test");
+        disc.writePng("kura");
     }
 
     if (iProc() == 0) {

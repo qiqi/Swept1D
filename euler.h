@@ -1,8 +1,8 @@
 #include <cmath>
 #include "pde_common.h"
 
-const double DT = 0.0005, DX = 0.5;
-const int nStepsPerPixel = 1000, nPixel = 1000;
+const double DT = 0.02, DX = 0.5;
+const int nStepsPerPixel = 50, nPixel = 2000;
 
 inline double pressure(double rho, double rhoU, double rhoE) {
     double kineticE = 0.5 * rhoU * rhoU / rho;
@@ -25,7 +25,7 @@ void pRatioStep0(SpatialPoint<3,4>& sp) {
 
 inline double limitedReconstruction(double w, double wNbr, double r) {
     if (std::isfinite(r) && r > 0) {
-        double limiter = 1.0;
+        double limiter = std::min(r, 1.0);
         return w + 0.5 * (wNbr - w) * limiter;
     } else {
         return w;

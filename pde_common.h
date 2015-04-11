@@ -51,18 +51,18 @@
 // 
 // Each "substep" is implemented as a function:
 // 
-// void substep(TODO
+// void substep(SpatialPoint<numIn, numOut>& point);
 // 
 // where numInput and numOutput are concrete numbers.
 // For example, scalar gradient computation in 1D can be
 // implemented as
 //
-// void scalarGradient(TODO
+// void scalarGradient(SpatialPoint<numIn, numOut>& point)
 // {
-//     outputs[0] = inputs[0]); // "forwarding" the field value
-//     double leftVal = inputs[0].nbr(0);
-//     double rightVal = inputs[0].nbr(1);
-//     outputs[1] = (rightVal - leftVal) / (2 * dx));
+//     point.outputs(0) = point.inputs(0); // "forwarding" the field value
+//     double leftVal = point.nbr(0).inputs(0);
+//     double rightVal = point.nbr(1).inputs(0);
+//     point.outputs(1) = (rightVal - leftVal) / (2 * dx);
 // }
 
 template<size_t numInput, size_t numOutput>

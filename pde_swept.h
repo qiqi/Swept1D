@@ -236,16 +236,7 @@ class DiamondHalf {
 };
 
 class DiamondTop : public DiamondHalf {
-    // TODO
-    // An instance of this class computes one space-time diamond
-    // When constructing the instance, one feeds in a series of LocalMesh
-    // instances, spaning the spatial domain of this diamond, as well
-    // as a series of LocalOperator instances, spanning the time domain
-    // of this diamond. From these inputs, we know how much input data to
-    // expect from either the initial condition or the "foundation" of
-    // the diamonds.  Computation of the whole diamond is performed
-    // upon its construction. Afterwards, call "getRoof" function to obtain
-    // the outputs.
+    // An instance of this class computes the top half of a space-time diamond
     private:
     int iProcLeftRoofGoesTo_, tagLeftRoofGoesTo_;
     int iProcRightRoofGoesTo_, tagRightRoofGoesTo_;
@@ -352,16 +343,7 @@ class DiamondTop : public DiamondHalf {
 };
 
 class DiamondBottom : public DiamondHalf {
-    // TODO
-    // An instance of this class computes one space-time diamond
-    // When constructing the instance, one feeds in a series of LocalMesh
-    // instances, spaning the spatial domain of this diamond, as well
-    // as a series of LocalOperator instances, spanning the time domain
-    // of this diamond. From these inputs, we know how much input data to
-    // expect from either the initial condition or the "foundation" of
-    // the diamonds.  Computation of the whole diamond is performed
-    // upon its construction. Afterwards, call "getRoof" function to obtain
-    // the outputs.
+    // An instance of this class computes the bottom half of a space-time diamond
     private:
     int iProcLeftFoundationIsFrom_, tagLeftFoundationIsFrom_;
     int iProcRightFoundationIsFrom_, tagRightFoundationIsFrom_;

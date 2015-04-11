@@ -25,7 +25,7 @@ int main(int argc, char*argv[])
             disc.applyOp(updateStep1);
         }
         disc.variablesToColor(iPixel);
-        disc.writePng("test_vanLeer");
+        disc.writePng("test_minmod");
     }
 
     if (iProc() == 0) {
